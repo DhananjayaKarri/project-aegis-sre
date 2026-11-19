@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NexusPay & Project Aegis-SRE</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased">
+
+  <!-- TOP DEMO NAVIGATION BAR -->
+  <nav class="border-b border-slate-800 bg-slate-900/90 backdrop-blur px-6 py-3 flex items-center justify-between sticky top-0 z-50">
+    <div class="flex items-center gap-3">
+      <span class="h-3 w-3 rounded-full bg-emerald-400 animate-pulse"></span>
+      <span class="font-bold tracking-tight text-lg text-white">NexusPay <span class="text-slate-400 font-normal">|</span> <span class="text-indigo-400">Aegis-SRE</span></span>
+    </div>
+    <div class="flex items-center gap-2 bg-slate-800 p-1 rounded-lg border border-slate-700">
+      <a href="/" id="nav-customer" class="px-4 py-1.5 rounded-md text-sm font-medium transition">Customer Portal (/)</a>
+      <a href="/admin" id="nav-admin" class="px-4 py-1.5 rounded-md text-sm font-medium transition">Admin SRE Console (/admin)</a>
+    </div>
+  </nav>
+
+  <!-- ===================================================================== -->
+  <!-- VIEW 1: CUSTOMER PORTAL ('/') - NexusPay Enterprise Treasury          -->
+  <!-- ===================================================================== -->
+  <main id="customer-view" class="hidden max-w-6xl mx-auto p-6 space-y-6">
+    <div class="bg-gradient-to-r from-indigo-900/60 via-slate-900 to-slate-900 border border-indigo-500/30 rounded-2xl p-6 flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <span class="text-xs uppercase tracking-widest text-indigo-400 font-semibold">Enterprise B2B Settlement Gateway</span>
+        <h1 class="text-2xl font-bold text-white mt-1">NexusPay Treasury & Instant Wire Portal</h1>
+        <p class="text-slate-400 text-sm mt-1">ISO-20022 compliant instant cross-border merchant settlements with idempotency protection.</p>
+      </div>
+      <div class="text-right bg-slate-950/70 border border-slate-800 px-5 py-3 rounded-xl">
+        <div class="text-xs text-slate-400">Available Settlement Liquidity</div>
+        <div class="text-2xl font-mono font-bold text-emerald-400">$48,920,450.00</div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <!-- Left: Submit Settlement Form -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+        <h2 class="text-lg font-semibold text-white">Execute Instant Settlement</h2>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Merchant Account ID</label>
+          <input id="cust-merchant" type="text" value="MERCH-8841-EU" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white" />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Recipient IBAN</label>
+          <input id="cust-iban" type="text" value="DE89370400440532013000" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-white" />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Settlement Amount (USD)</label>
+          <input id="cust-amount" type="number" value="12500" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-white" />
+        </div>
+        <div class="flex items-center gap-2 pt-1">
+          <input id="cust-compliance" type="checkbox" checked class="rounded bg-slate-950 border-slate-700 text-indigo-500" />
+          <label for="cust-compliance" class="text-xs text-slate-300">High-value compliance audit flag (&ge; $10k)</label>
+        </div>
+
+        <button onclick="submitCustomerWire()" id="btn-settle" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-xl transition shadow-lg shadow-indigo-600/20">
+          Submit Wire Transfer
+        </button>
+
+        <div id="cust-alert" class="hidden rounded-xl p-3 text-xs border"></div>
+      </div>
+
+      <!-- Right: Live Settlement Ledger -->
+      <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold text-white">Live Settlement Ledger</h2>
+          <span class="text-xs text-slate-400">Auto-refreshes every 2s</span>
+        </div>
+        <div class="overflow-x-auto flex-1">
+          <table class="w-full text-left text-sm">
+            <thead class="text-xs uppercase text-slate-400 border-b border-slate-800">
+              <tr>
+                <th class="py-2.5 px-3">Transaction ID</th>
+                <th class="py-2.5 px-3">Merchant</th>
+                <th class="py-2.5 px-3">Amount</th>
+                <th class="py-2.5 px-3">Latency</th>
+                <th class="py-2.5 px-3">Status</th>
+              </tr>
+            </thead>
+            <tbody id="ledger-body" class="divide-y divide-slate-800/70 font-mono text-xs">
+              <tr><td colspan="5" class="py-8 text-center text-slate-500">No settlements dispatched yet. Click "Submit Wire Transfer" to test.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===================================================================== -->
+  <!-- VIEW 2: ADMIN SRE CONSOLE ('/admin') - Project Aegis-SRE Command Center-->
+  <!-- ===================================================================== -->
+  <main id="admin-view" class="hidden max-w-7xl mx-auto p-6 space-y-6">
+    <!-- Control Toolbar -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <h1 class="text-xl font-bold text-white">Project Aegis-SRE — Autonomous Command Center</h1>
+        <p class="text-xs text-slate-400">Google ADK Multi-Agent Orchestrator &bull; Four Golden Signals Monitor &bull; Guardrailed Self-Healing</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-3">
+        <!-- Operational Mode Toggle -->
+        <select id="mode-select" onchange="changeMode(this.value)" class="bg-slate-950 border border-slate-700 text-xs rounded-lg px-3 py-2 text-slate-200">
+          <option value="AUTONOMOUS">Mode: Full Autonomous</option>
+          <option value="APPROVAL_GATE">Mode: Human Approval Gate</option>
+        </select>
+
+        <!-- Approve Button (visible in Approval Gate mode) -->
+        <button id="btn-approve" onclick="approvePatch()" class="hidden bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs px-4 py-2 rounded-lg transition">
+          Approve & Deploy Staged Patch
+        </button>
+
+        <!-- Chaos Surge Trigger -->
+        <button onclick="triggerChaosSurge()" id="btn-chaos" class="bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs px-4 py-2 rounded-lg transition shadow-lg shadow-rose-600/20">
+          Simulate Settlement Surge (Chaos)
+        </button>
+
+        <!-- Reset Demo Baseline -->
+        <button onclick="resetDemo()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs px-3 py-2 rounded-lg transition">
+          Reset Demo Baseline
+        </button>
+      </div>
+    </div>
+
+    <!-- Four Golden Signals KPI Cards -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div class="text-xs text-slate-400 uppercase">1. Latency (p95)</div>
+        <div id="kpi-latency" class="text-2xl font-mono font-bold text-emerald-400 mt-1">38.0 ms</div>
+        <div class="text-[11px] text-slate-500 mt-1">SLO Target: &lt; 250 ms</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div class="text-xs text-slate-400 uppercase">2. Traffic (Throughput)</div>
+        <div id="kpi-traffic" class="text-2xl font-mono font-bold text-sky-400 mt-1">0.00 req/s</div>
+        <div class="text-[11px] text-slate-500 mt-1">60s Rolling Window</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div class="text-xs text-slate-400 uppercase">3. Errors (5xx Rate)</div>
+        <div id="kpi-errors" class="text-2xl font-mono font-bold text-emerald-400 mt-1">0.0%</div>
+        <div id="kpi-burn" class="text-[11px] text-slate-500 mt-1">Burn Rate: 0.0x (99.9% SLO)</div>
+      </div>
+      <div id="card-saturation" class="bg-slate-900 border border-slate-800 rounded-xl p-4 transition">
+        <div class="text-xs text-slate-400 uppercase">4. Pool Saturation</div>
+        <div id="kpi-saturation" class="text-2xl font-mono font-bold text-emerald-400 mt-1">0.0% (0/5)</div>
+        <div class="text-[11px] text-slate-500 mt-1">Trigger Threshold: &ge; 90%</div>
+      </div>
+    </div>
+
+    <!-- Middle Row: Multi-Agent Pipeline Graph + Live Parent-Child Handoff Feed -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <!-- Agent Topology Nodes -->
+      <div class="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-300">Parent &rarr; Child ADK Topology</h2>
+          <span id="incident-badge" class="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400">IDLE</span>
+        </div>
+
+        <div class="space-y-2.5 text-xs">
+          <div class="p-3 rounded-xl bg-indigo-950/50 border border-indigo-500/40 flex items-center justify-between">
+            <div>
+              <div class="font-bold text-indigo-300">SRE_Commander (Parent Orchestrator)</div>
+              <div class="text-slate-400 text-[11px]">SequentialAgent &bull; Shared Session State</div>
+            </div>
+            <span id="node-SRE_Commander" class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">READY</span>
+          </div>
+
+          <div class="pl-4 border-l-2 border-slate-800 space-y-2">
+            <div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
+              <div>
+                <div class="font-semibold text-slate-200">1a. TelemetrySignalAgent <span class="text-[10px] text-sky-400">[Parallel]</span></div>
+                <div class="text-slate-500 text-[11px]">Gemini 2.5 Flash &bull; Golden Signals</div>
+              </div>
+              <span id="node-TelemetrySignalAgent" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">QUEUED</span>
+            </div>
+
+            <div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
+              <div>
+                <div class="font-semibold text-slate-200">1b. LogForensicsAgent <span class="text-[10px] text-sky-400">[Parallel]</span></div>
+                <div class="text-slate-500 text-[11px]">Gemini 2.5 Flash &bull; Structured Logs</div>
+              </div>
+              <span id="node-LogForensicsAgent" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">QUEUED</span>
+            </div>
+
+            <div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
+              <div>
+                <div class="font-semibold text-slate-200">2a. RootCauseArchitect <span class="text-[10px] text-amber-400">[Loop]</span></div>
+                <div class="text-slate-500 text-[11px]">Gemini 2.5 Pro &bull; Shadow Patch + .bak</div>
+              </div>
+              <span id="node-RootCauseArchitect" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">QUEUED</span>
+            </div>
+
+            <div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
+              <div>
+                <div class="font-semibold text-slate-200">2b. GuardrailVerifier <span class="text-[10px] text-amber-400">[Gate]</span></div>
+                <div class="text-slate-500 text-[11px]">15-Wire Concurrency Smoke Test</div>
+              </div>
+              <span id="node-GuardrailVerifier" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">QUEUED</span>
+            </div>
+
+            <div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
+              <div>
+                <div class="font-semibold text-slate-200">3. PostMortemWriter</div>
+                <div class="text-slate-500 text-[11px]">Blameless RCA + Git Artifact Export</div>
+              </div>
+              <span id="node-PostMortemWriter" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">QUEUED</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Agent-to-Agent Communication Stream -->
+      <div class="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-300">Internal Parent &harr; Child Communication Stream</h2>
+          <span class="text-[11px] text-emerald-400 font-mono">SSE LIVE</span>
+        </div>
+        <div id="agent-feed" class="bg-slate-950 border border-slate-800 rounded-xl p-4 h-80 overflow-y-auto space-y-3 font-mono text-xs">
+          <div class="text-slate-500">Waiting for SLO alert or chaos surge trigger...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom Row: Code Diff Patch Viewer + Blameless Post-Mortem -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+        <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-300 mb-3">Automated Shadow Patch Unified Diff</h2>
+        <pre id="diff-viewer" class="bg-slate-950 border border-slate-800 rounded-xl p-4 h-72 overflow-auto text-xs font-mono text-emerald-300 whitespace-pre-wrap">No patch staged yet.</pre>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+        <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-300 mb-3">Google SRE Blameless Post-Mortem (Saved to Git)</h2>
+        <pre id="rca-viewer" class="bg-slate-950 border border-slate-800 rounded-xl p-4 h-72 overflow-auto text-xs font-sans text-slate-200 whitespace-pre-wrap">Post-mortem report will appear here automatically once recovery completes.</pre>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const isAdmin = window.location.pathname.startsWith('/admin');
+    document.getElementById(isAdmin ? 'admin-view' : 'customer-view').classList.remove('hidden');
+    document.getElementById(isAdmin ? 'nav-admin' : 'nav-customer').classList.add('bg-indigo-600', 'text-white');
+
+    // --- CUSTOMER PORTAL LOGIC ---
+    async function submitCustomerWire() {
+      const btn = document.getElementById('btn-settle');
+      const alertBox = document.getElementById('cust-alert');
+      btn.disabled = true;
+      btn.innerText = 'Processing Wire...';
+
+      const payload = {
+        merchant_id: document.getElementById('cust-merchant').value,
+        recipient_iban: document.getElementById('cust-iban').value,
+        amount_usd: parseFloat(document.getElementById('cust-amount').value),
+        simulate_validation_warning: document.getElementById('cust-compliance').checked
+      };
+
+      try {
+        const res = await fetch('/api/settle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'wire-' + Date.now() },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        alertBox.classList.remove('hidden', 'bg-rose-950/60', 'border-rose-500/40', 'text-rose-300', 'bg-emerald-950/60', 'border-emerald-500/40', 'text-emerald-300');
+        if (res.ok) {
+          alertBox.classList.add('bg-emerald-950/60', 'border-emerald-500/40', 'text-emerald-300');
+          alertBox.innerText = `SETTLED: ${data.transaction_id} ($${data.amount_usd.toLocaleString()}) in ${data.latency_ms}ms`;
+        } else {
+          alertBox.classList.add('bg-rose-950/60', 'border-rose-500/40', 'text-rose-300');
+          alertBox.innerText = `GATEWAY OUTAGE (HTTP ${res.status}): ${data.detail}`;
+        }
+      } catch (err) {
+        alertBox.classList.remove('hidden');
+        alertBox.innerText = 'Network error: ' + err;
+      } finally {
+        btn.disabled = false;
+        btn.innerText = 'Submit Wire Transfer';
+        refreshLedger();
+      }
+    }
+
+    async function refreshLedger() {
+      if (isAdmin) return;
+      const res = await fetch('/api/ledger');
+      const rows = await res.json();
+      const tbody = document.getElementById('ledger-body');
+      if (!rows.length) return;
+      tbody.innerHTML = rows.map(r => {
+        const badge = r.status === 'SETTLED'
+          ? '<span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300">SETTLED</span>'
+          : '<span class="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300">503 FAILED</span>';
+        return `<tr>
+          <td class="py-2.5 px-3 text-slate-200">${r.transaction_id}</td>
+          <td class="py-2.5 px-3 text-slate-400">${r.merchant_id}</td>
+          <td class="py-2.5 px-3 text-slate-200">$${Number(r.amount_usd).toLocaleString()}</td>
+          <td class="py-2.5 px-3 text-slate-400">${r.latency_ms} ms</td>
+          <td class="py-2.5 px-3">${badge}</td>
+        </tr>`;
+      }).join('');
+    }
+    if (!isAdmin) setInterval(refreshLedger, 2000);
+
+    // --- ADMIN SRE CONSOLE LOGIC ---
+    function updateKPIs(m) {
+      document.getElementById('kpi-latency').innerText = `${m.p95_latency_ms} ms`;
+      document.getElementById('kpi-latency').className = `text-2xl font-mono font-bold mt-1 ${m.p95_latency_ms > 250 ? 'text-rose-400' : 'text-emerald-400'}`;
+      document.getElementById('kpi-traffic').innerText = `${m.throughput_rps} req/s`;
+      document.getElementById('kpi-errors').innerText = `${m.error_rate_pct}%`;
+      document.getElementById('kpi-errors').className = `text-2xl font-mono font-bold mt-1 ${m.error_rate_pct > 5 ? 'text-rose-400' : 'text-emerald-400'}`;
+      document.getElementById('kpi-burn').innerText = `Burn Rate: ${m.slo_burn_rate}x (99.9% SLO)`;
+      document.getElementById('kpi-saturation').innerText = `${m.pool_saturation_pct}% (${m.active_connections}/${m.max_connections})`;
+      document.getElementById('kpi-saturation').className = `text-2xl font-mono font-bold mt-1 ${m.pool_saturation_pct >= 90 ? 'text-rose-400' : 'text-emerald-400'}`;
+    }
+
+    function appendFeed(title, body, colorClass = 'text-indigo-300') {
+      const feed = document.getElementById('agent-feed');
+      if (feed.children.length === 1 && feed.children[0].innerText.startsWith('Waiting')) feed.innerHTML = '';
+      const card = document.createElement('div');
+      card.className = 'p-3 rounded-lg bg-slate-900 border border-slate-800';
+      card.innerHTML = `<div class="font-bold ${colorClass}">${title}</div><div class="text-slate-300 mt-1 whitespace-pre-wrap">${body}</div>`;
+      feed.appendChild(card);
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    function setNodeStatus(agentName, status) {
+      const el = document.getElementById('node-' + agentName);
+      if (!el) return;
+      el.innerText = status;
+      el.className = 'px-2 py-0.5 rounded font-mono ' + (
+        status === 'COMPLETED' ? 'bg-emerald-500/20 text-emerald-300' :
+        status === 'STARTED' ? 'bg-amber-500/20 text-amber-300 animate-pulse' :
+        status === 'WAITING_APPROVAL' ? 'bg-purple-500/20 text-purple-300' :
+        'bg-slate-800 text-slate-400'
+      );
+    }
+
+    if (isAdmin) {
+      const evtSource = new EventSource('/api/events/stream');
+      evtSource.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'metrics_tick') updateKPIs(msg.data);
+        if (msg.type === 'incident_detected') {
+          document.getElementById('incident-badge').innerText = msg.data.incident_hash;
+          document.getElementById('incident-badge').className = 'text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300';
+          setNodeStatus('SRE_Commander', 'STARTED');
+          appendFeed('ALERT -> SRE_Commander', msg.data.message, 'text-rose-400');
+        }
+        if (msg.type === 'agent_handoff') {
+          const d = msg.data;
+          setNodeStatus(d.child_agent, d.status);
+          appendFeed(`${d.parent_agent} -> ${d.child_agent} [${d.status}]`, d.summary, 'text-sky-300');
+          if (d.state_payload?.patch_diff) document.getElementById('diff-viewer').innerText = d.state_payload.patch_diff;
+          if (d.state_payload?.postmortem_markdown) document.getElementById('rca-viewer').innerText = d.state_payload.postmortem_markdown;
+          if (d.status === 'WAITING_APPROVAL') document.getElementById('btn-approve').classList.remove('hidden');
+        }
+        if (msg.type === 'agent_message') {
+          appendFeed(`Agent Output (${msg.data.author})`, msg.data.text, 'text-emerald-300');
+        }
+        if (msg.type === 'incident_resolved') {
+          setNodeStatus('SRE_Commander', 'COMPLETED');
+          document.getElementById('incident-badge').className = 'text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300';
+          if (msg.data.state?.patch_diff) document.getElementById('diff-viewer').innerText = msg.data.state.patch_diff;
+          if (msg.data.state?.postmortem_markdown) document.getElementById('rca-viewer').innerText = msg.data.state.postmortem_markdown;
+        }
+      };
+    }
+
+    async function triggerChaosSurge() {
+      const btn = document.getElementById('btn-chaos');
+      btn.disabled = true;
+      btn.innerText = 'Dispatching 12 Concurrent Wires...';
+      await fetch('/api/chaos/surge', { method: 'POST' });
+      btn.disabled = false;
+      btn.innerText = 'Simulate Settlement Surge (Chaos)';
+    }
+
+    async function changeMode(mode) {
+      await fetch('/api/admin/mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode })
+      });
+    }
+
+    async function approvePatch() {
+      await fetch('/api/admin/approve', { method: 'POST' });
+      document.getElementById('btn-approve').classList.add('hidden');
+    }
+
+    async function resetDemo() {
+      await fetch('/api/admin/reset', { method: 'POST' });
+      document.getElementById('agent-feed').innerHTML = '<div class="text-slate-500">Demo reset to baseline. Ready for next run.</div>';
+      document.getElementById('diff-viewer').innerText = 'No patch staged yet.';
+      document.getElementById('rca-viewer').innerText = 'Post-mortem report will appear here automatically once recovery completes.';
+      document.getElementById('incident-badge').innerText = 'IDLE';
+      ['SRE_Commander','TelemetrySignalAgent','LogForensicsAgent','RootCauseArchitect','GuardrailVerifier','PostMortemWriter'].forEach(n => setNodeStatus(n, 'QUEUED'));
+    }
+  </script>
+</body>
+</html>
