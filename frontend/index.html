@@ -366,8 +366,24 @@
 
     if (isAdmin) {
       fetch('/api/admin/status').then(r => r.json()).then(st => {
+        if (st.metrics) updateKPIs(st.metrics);
         if (st.watcher?.operational_mode) {
           document.getElementById('mode-select').value = st.watcher.operational_mode;
+        }
+        const latest = st.watcher?.latest_state || {};
+        if (latest.incident_hash) {
+          document.getElementById('incident-badge').innerText = latest.incident_hash;
+        }
+        if (latest.patch_diff) {
+          document.getElementById('diff-viewer').innerText = latest.patch_diff;
+        }
+        if (latest.postmortem_markdown) {
+          document.getElementById('rca-viewer').innerText = latest.postmortem_markdown;
+        }
+        if (st.watcher?.awaiting_approval) {
+          document.getElementById('btn-approve').classList.remove('hidden');
+          setNodeStatus('SRE_Commander', 'WAITING_APPROVAL');
+          setNodeStatus('GuardrailVerifier', 'WAITING_APPROVAL');
         }
       });
 
@@ -392,8 +408,18 @@
         if (msg.type === 'agent_message') {
           appendFeed(`Agent Output (${msg.data.author})`, msg.data.text, 'text-emerald-300');
         }
+        if (msg.type === 'approval_required') {
+          setNodeStatus('SRE_Commander', 'WAITING_APPROVAL');
+          setNodeStatus('GuardrailVerifier', 'WAITING_APPROVAL');
+          document.getElementById('incident-badge').className = 'text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300';
+          document.getElementById('btn-approve').classList.remove('hidden');
+          if (msg.data.state?.patch_diff) document.getElementById('diff-viewer').innerText = msg.data.state.patch_diff;
+          if (msg.data.state?.postmortem_markdown) document.getElementById('rca-viewer').innerText = msg.data.state.postmortem_markdown;
+          appendFeed('HUMAN APPROVAL GATE', msg.data.message, 'text-amber-400');
+        }
         if (msg.type === 'incident_resolved') {
           setNodeStatus('SRE_Commander', 'COMPLETED');
+          setNodeStatus('GuardrailVerifier', 'COMPLETED');
           document.getElementById('incident-badge').className = 'text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300';
           document.getElementById('btn-approve').classList.add('hidden');
           if (msg.data.state?.patch_diff) document.getElementById('diff-viewer').innerText = msg.data.state.patch_diff;

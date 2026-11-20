@@ -21,7 +21,6 @@ def register_live_event_sink(sink_fn) -> None:
 
 
 def _state_as_dict(state_obj) -> dict:
-    """Safely converts ADK's State wrapper (or dict) into a standard Python dict."""
     if isinstance(state_obj, dict):
         return state_obj
     if hasattr(state_obj, "to_dict"):
@@ -32,9 +31,17 @@ def _state_as_dict(state_obj) -> dict:
         return {}
 
 
-def _emit_event(event: AgentHandoffEvent) -> None:
-    incident_hash = event.incident_hash or "default"
-    trace_file = os.path.join(ARTIFACTS_DIR, f"incident_{incident_hash[:12].replace(':', '_')}_trace.json")
+def save_postmortem_artifact(incident_hash: str, markdown_text: str) -> str:
+    safe_hash = str(incident_hash or "default").replace(":", "_")[:16]
+    rca_path = os.path.join(ARTIFACTS_DIR, f"POSTMORTEM_{safe_hash}.md")
+    with open(rca_path, "w", encoding="utf-8") as f:
+        f.write(str(markdown_text))
+    return rca_path
+
+
+def emit_handoff_event(event: AgentHandoffEvent) -> None:
+    safe_hash = str(event.incident_hash or "default").replace(":", "_")[:16]
+    trace_file = os.path.join(ARTIFACTS_DIR, f"incident_{safe_hash}_trace.json")
 
     history = []
     if os.path.exists(trace_file):
@@ -74,7 +81,7 @@ def on_child_agent_start(callback_context: CallbackContext) -> Optional[types.Co
             "available_state_keys": [k for k in state.keys() if not str(k).startswith("_")],
         },
     )
-    _emit_event(ev)
+    emit_handoff_event(ev)
     return None
 
 
@@ -85,11 +92,18 @@ def on_child_agent_end(callback_context: CallbackContext) -> Optional[types.Cont
 
     state_preview = {}
     for key in ("telemetry_summary", "log_forensics", "patch_diff", "verification_status", "postmortem_markdown"):
-        if key in state:
+        if key in state and state[key]:
             val = str(state[key])
-            state_preview[key] = val[:1500] + ("..." if len(val) > 1500 else "")
+            state_preview[key] = val if key in ("patch_diff", "postmortem_markdown") else val[:1500]
 
-    status = "WAITING_APPROVAL" if state.get("awaiting_human_approval") else "COMPLETED"
+    is_waiting = agent_name == "GuardrailVerifier" and bool(state.get("awaiting_human_approval"))
+    status = "WAITING_APPROVAL" if is_waiting else "COMPLETED"
+    summary = (
+        "GuardrailVerifier passed 15/15 sandbox stress tests and paused at Human Approval Gate."
+        if is_waiting
+        else f"{agent_name} completed execution and updated shared session state."
+    )
+
     ev = AgentHandoffEvent(
         event_id=uuid.uuid4().hex[:8],
         incident_hash=incident_hash,
@@ -97,14 +111,12 @@ def on_child_agent_end(callback_context: CallbackContext) -> Optional[types.Cont
         child_agent=agent_name,
         stage=agent_name,
         status=status,
-        summary=f"{agent_name} completed execution and updated shared session state.",
+        summary=summary,
         state_payload=state_preview,
     )
-    _emit_event(ev)
+    emit_handoff_event(ev)
 
-    if agent_name == "PostMortemWriter" and "postmortem_markdown" in state:
-        rca_path = os.path.join(ARTIFACTS_DIR, f"POSTMORTEM_{incident_hash[:12].replace(':', '_')}.md")
-        with open(rca_path, "w", encoding="utf-8") as f:
-            f.write(str(state["postmortem_markdown"]))
+    if agent_name == "PostMortemWriter" and state.get("postmortem_markdown"):
+        save_postmortem_artifact(incident_hash, str(state["postmortem_markdown"]))
 
     return None

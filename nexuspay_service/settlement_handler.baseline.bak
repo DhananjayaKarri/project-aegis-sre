@@ -22,6 +22,7 @@ def execute_settlement(req: SettlementRequest, idempotency_key: str) -> Settleme
     if req.simulate_validation_warning or req.amount_usd >= 10000.0:
         time.sleep(0.06)
         latency_ms = round((time.perf_counter() - start) * 1000, 2)
+        infra.deduct_liquidity(req.amount_usd)
         infra.log_event(
             "WARN",
             "compliance_hold_early_return_leaked_connection",
@@ -45,6 +46,7 @@ def execute_settlement(req: SettlementRequest, idempotency_key: str) -> Settleme
     time.sleep(0.04)
     infra.release_connection()
     latency_ms = round((time.perf_counter() - start) * 1000, 2)
+    infra.deduct_liquidity(req.amount_usd)
     infra.record_transaction(latency_ms=latency_ms, success=True)
     infra.log_event(
         "INFO",

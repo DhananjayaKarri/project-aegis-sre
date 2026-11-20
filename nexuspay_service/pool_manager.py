@@ -17,16 +17,20 @@ class ConnectionPoolExhaustedError(RuntimeError):
 
 
 class NexusPayInfrastructure:
-    def __init__(self, max_connections: int = 5):
+    def __init__(self, max_connections: int = 5, write_logs: bool = True):
         self.max_connections = max_connections
+        self.write_logs = write_logs
         self._active_connections = 0
         self._lock = threading.Lock()
         self._idempotency_ledger: Dict[str, SettlementReceipt] = {}
         self._recent_outcomes: deque[tuple[float, bool, float]] = deque(maxlen=100)
         self.available_liquidity_usd: float = INITIAL_LIQUIDITY_USD
-        os.makedirs("logs", exist_ok=True)
+        if self.write_logs:
+            os.makedirs("logs", exist_ok=True)
 
     def log_event(self, level: str, event: str, **fields) -> None:
+        if not self.write_logs:
+            return
         record = {
             "ts": datetime.now(timezone.utc).isoformat(),
             "level": level,
@@ -72,6 +76,13 @@ class NexusPayInfrastructure:
             if self._active_connections > 0:
                 self._active_connections -= 1
 
+    def release_leaked_connections(self) -> None:
+        """Clears leaked pool slots and error-rate spike after a verified patch without wiping treasury balance."""
+        with self._lock:
+            self._active_connections = 0
+            self._recent_outcomes.clear()
+        self.log_event("INFO", "connection_pool_recovered", active_connections=0, max_connections=self.max_connections)
+
     def deduct_liquidity(self, amount_usd: float) -> float:
         with self._lock:
             self.available_liquidity_usd = round(max(0.0, self.available_liquidity_usd - amount_usd), 2)
@@ -92,13 +103,14 @@ class NexusPayInfrastructure:
             self._idempotency_ledger.clear()
             self._recent_outcomes.clear()
             self.available_liquidity_usd = INITIAL_LIQUIDITY_USD
-        open(LOG_PATH, "w", encoding="utf-8").close()
-        self.log_event(
-            "INFO",
-            "infrastructure_reset",
-            active_connections=0,
-            available_liquidity_usd=self.available_liquidity_usd,
-        )
+        if self.write_logs:
+            open(LOG_PATH, "w", encoding="utf-8").close()
+            self.log_event(
+                "INFO",
+                "infrastructure_reset",
+                active_connections=0,
+                available_liquidity_usd=self.available_liquidity_usd,
+            )
 
     def snapshot_golden_signals(self) -> GoldenSignalsSnapshot:
         now = time.time()
