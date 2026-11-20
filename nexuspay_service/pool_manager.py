@@ -9,6 +9,7 @@ from typing import Dict, Optional
 from domain.schemas import GoldenSignalsSnapshot, SettlementReceipt
 
 LOG_PATH = os.path.join("logs", "settlement.log")
+INITIAL_LIQUIDITY_USD = 48_920_450.00
 
 
 class ConnectionPoolExhaustedError(RuntimeError):
@@ -22,6 +23,7 @@ class NexusPayInfrastructure:
         self._lock = threading.Lock()
         self._idempotency_ledger: Dict[str, SettlementReceipt] = {}
         self._recent_outcomes: deque[tuple[float, bool, float]] = deque(maxlen=100)
+        self.available_liquidity_usd: float = INITIAL_LIQUIDITY_USD
         os.makedirs("logs", exist_ok=True)
 
     def log_event(self, level: str, event: str, **fields) -> None:
@@ -57,6 +59,11 @@ class NexusPayInfrastructure:
             if self._active_connections > 0:
                 self._active_connections -= 1
 
+    def deduct_liquidity(self, amount_usd: float) -> float:
+        with self._lock:
+            self.available_liquidity_usd = round(max(0.0, self.available_liquidity_usd - amount_usd), 2)
+            return self.available_liquidity_usd
+
     def record_transaction(self, latency_ms: float, success: bool) -> None:
         self._recent_outcomes.append((time.time(), success, latency_ms))
 
@@ -71,8 +78,9 @@ class NexusPayInfrastructure:
             self._active_connections = 0
             self._idempotency_ledger.clear()
             self._recent_outcomes.clear()
+            self.available_liquidity_usd = INITIAL_LIQUIDITY_USD
         open(LOG_PATH, "w", encoding="utf-8").close()
-        self.log_event("INFO", "infrastructure_reset", active_connections=0)
+        self.log_event("INFO", "infrastructure_reset", active_connections=0, liquidity_usd=self.available_liquidity_usd)
 
     def snapshot_golden_signals(self) -> GoldenSignalsSnapshot:
         now = time.time()

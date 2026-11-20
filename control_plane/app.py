@@ -65,8 +65,10 @@ def create_settlement(
 
 @app.get("/api/ledger")
 def get_ledger():
-    return list(RECENT_LEDGER)
-
+    return {
+        "available_liquidity_usd": infra.available_liquidity_usd,
+        "transactions": list(RECENT_LEDGER),
+    }
 
 @app.get("/api/metrics")
 def get_metrics():

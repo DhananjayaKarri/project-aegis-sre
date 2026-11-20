@@ -32,7 +32,7 @@
       </div>
       <div class="text-right bg-slate-950/70 border border-slate-800 px-5 py-3 rounded-xl">
         <div class="text-xs text-slate-400">Available Settlement Liquidity</div>
-        <div class="text-2xl font-mono font-bold text-emerald-400">$48,920,450.00</div>
+        <div id="cust-liquidity" class="text-2xl font-mono font-bold text-emerald-400">$48,920,450.00</div>
       </div>
     </div>
 
@@ -280,26 +280,42 @@
       }
     }
 
-    async function refreshLedger() {
-      if (isAdmin) return;
-      const res = await fetch('/api/ledger');
-      const rows = await res.json();
-      const tbody = document.getElementById('ledger-body');
-      if (!rows.length) return;
-      tbody.innerHTML = rows.map(r => {
-        const badge = r.status === 'SETTLED'
-          ? '<span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300">SETTLED</span>'
-          : '<span class="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300">503 FAILED</span>';
-        return `<tr>
-          <td class="py-2.5 px-3 text-slate-200">${r.transaction_id}</td>
-          <td class="py-2.5 px-3 text-slate-400">${r.merchant_id}</td>
-          <td class="py-2.5 px-3 text-slate-200">$${Number(r.amount_usd).toLocaleString()}</td>
-          <td class="py-2.5 px-3 text-slate-400">${r.latency_ms} ms</td>
-          <td class="py-2.5 px-3">${badge}</td>
-        </tr>`;
-      }).join('');
-    }
-    if (!isAdmin) setInterval(refreshLedger, 2000);
+  async function refreshLedger() {
+  if (isAdmin) return;
+  const res = await fetch('/api/ledger');
+  const data = await res.json();
+  const liqEl = document.getElementById('cust-liquidity');
+  if (liqEl && typeof data.available_liquidity_usd === 'number') {
+    liqEl.innerText = '$' + data.available_liquidity_usd.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  }
+  const rows = data.transactions || [];
+  const tbody = document.getElementById('ledger-body');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="py-8 text-center text-slate-500">No settlements dispatched yet. Click "Submit Wire Transfer" to test.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const badge = r.status === 'SETTLED'
+      ? '<span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300">SETTLED</span>'
+      : r.status === 'IDEMPOTENT_REPLAY'
+      ? '<span class="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300">REPLAY SAFE</span>'
+      : '<span class="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300">503 FAILED</span>';
+    return `<tr>
+      <td class="py-2.5 px-3 text-slate-200">${r.transaction_id}</td>
+      <td class="py-2.5 px-3 text-slate-400">${r.merchant_id}</td>
+      <td class="py-2.5 px-3 text-slate-200">$${Number(r.amount_usd).toLocaleString()}</td>
+      <td class="py-2.5 px-3 text-slate-400">${r.latency_ms} ms</td>
+      <td class="py-2.5 px-3">${badge}</td>
+    </tr>`;
+  }).join('');
+}
+if (!isAdmin) {
+  refreshLedger();
+  setInterval(refreshLedger, 2000);
+}
 
     // --- ADMIN SRE CONSOLE LOGIC ---
     function updateKPIs(m) {
