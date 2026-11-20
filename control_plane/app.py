@@ -70,6 +70,7 @@ def get_ledger():
         "transactions": list(RECENT_LEDGER),
     }
 
+
 @app.get("/api/metrics")
 def get_metrics():
     return infra.snapshot_golden_signals()

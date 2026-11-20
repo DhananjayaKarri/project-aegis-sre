@@ -1,11 +1,10 @@
 from __future__ import annotations
 import difflib
 import importlib
-import json
+import importlib.util
 import os
 import py_compile
 import shutil
-import sys
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict
 
@@ -17,9 +16,12 @@ TARGET_FILE = os.path.join("nexuspay_service", "settlement_handler.py")
 CANDIDATE_FILE = os.path.join("nexuspay_service", "settlement_handler.candidate.py")
 BASELINE_BACKUP = os.path.join("nexuspay_service", "settlement_handler.baseline.bak")
 
-# Save an immutable clean copy of the original buggy code on startup for "Reset Demo"
-if os.path.exists(TARGET_FILE) and not os.path.exists(BASELINE_BACKUP):
-    shutil.copy2(TARGET_FILE, BASELINE_BACKUP)
+# Keep baseline backup synchronized with the current buggy baseline on startup
+if os.path.exists(TARGET_FILE):
+    with open(TARGET_FILE, "r", encoding="utf-8") as _tf:
+        _target_src = _tf.read()
+    if "finally:" not in _target_src:
+        shutil.copy2(TARGET_FILE, BASELINE_BACKUP)
 
 
 def fetch_golden_signals() -> Dict[str, Any]:
@@ -48,8 +50,8 @@ def stage_shadow_patch(proposed_python_code: str, tool_context: ToolContext) -> 
     Writes a write-ahead .bak snapshot and stages proposed_python_code into a shadow
     candidate file without touching live production code yet.
     """
-    incident_hash = tool_context.state.get("incident_hash", "manual")
-    bak_path = f"{TARGET_FILE}.{incident_hash[:8]}.bak"
+    incident_hash = str(tool_context.state.get("incident_hash", "manual")).replace(":", "_")
+    bak_path = f"{TARGET_FILE}.{incident_hash[:12]}.bak"
 
     with open(TARGET_FILE, "r", encoding="utf-8") as f:
         original_code = f.read()
@@ -108,7 +110,7 @@ def verify_and_promote_patch(tool_context: ToolContext) -> str:
             return shadow_mod.execute_settlement(req, idempotency_key=f"smoke-test-{idx}")
 
         with ThreadPoolExecutor(max_workers=5) as pool:
-            results = list(pool.map(_stress_call, range(15)))
+            list(pool.map(_stress_call, range(15)))
 
         post_metrics = infra.snapshot_golden_signals()
         if post_metrics.active_connections != 0:
@@ -123,6 +125,7 @@ def verify_and_promote_patch(tool_context: ToolContext) -> str:
     if tool_context.state.get("operational_mode") == "APPROVAL_GATE" and not tool_context.state.get("human_approved", False):
         tool_context.state["awaiting_human_approval"] = True
         tool_context.actions.escalate = True
+        infra.reset_state()
         return (
             "APPROVAL_REQUIRED: Shadow patch passed 15/15 concurrency stress tests with 0 leaked connections. "
             "Paused at Human-in-the-Loop Approval Gate awaiting SRE click to promote."

@@ -50,15 +50,19 @@
         </div>
         <div>
           <label class="block text-xs text-slate-400 mb-1">Settlement Amount (USD)</label>
-          <input id="cust-amount" type="number" value="12500" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-white" />
+          <input id="cust-amount" type="number" value="13500" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-white" />
         </div>
         <div class="flex items-center gap-2 pt-1">
           <input id="cust-compliance" type="checkbox" checked class="rounded bg-slate-950 border-slate-700 text-indigo-500" />
           <label for="cust-compliance" class="text-xs text-slate-300">High-value compliance audit flag (&ge; $10k)</label>
         </div>
 
-        <button onclick="submitCustomerWire()" id="btn-settle" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-xl transition shadow-lg shadow-indigo-600/20">
+        <button onclick="submitCustomerWire(false)" id="btn-settle" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-xl transition shadow-lg shadow-indigo-600/20">
           Submit Wire Transfer
+        </button>
+
+        <button onclick="submitCustomerWire(true)" id="btn-replay" class="hidden w-full bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 font-medium py-2 rounded-xl text-xs transition">
+          Replay Last Wire (Same X-Idempotency-Key)
         </button>
 
         <div id="cust-alert" class="hidden rounded-xl p-3 text-xs border"></div>
@@ -108,7 +112,7 @@
         </select>
 
         <!-- Approve Button (visible in Approval Gate mode) -->
-        <button id="btn-approve" onclick="approvePatch()" class="hidden bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs px-4 py-2 rounded-lg transition">
+        <button id="btn-approve" onclick="approvePatch()" class="hidden bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs px-4 py-2 rounded-lg transition animate-pulse">
           Approve & Deploy Staged Patch
         </button>
 
@@ -170,7 +174,7 @@
             <div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
               <div>
                 <div class="font-semibold text-slate-200">1a. TelemetrySignalAgent <span class="text-[10px] text-sky-400">[Parallel]</span></div>
-                <div class="text-slate-500 text-[11px]">Gemini 2.5 Flash &bull; Golden Signals</div>
+                <div class="text-slate-500 text-[11px]">Gemini Flash &bull; Golden Signals</div>
               </div>
               <span id="node-TelemetrySignalAgent" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">QUEUED</span>
             </div>
@@ -178,7 +182,7 @@
             <div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
               <div>
                 <div class="font-semibold text-slate-200">1b. LogForensicsAgent <span class="text-[10px] text-sky-400">[Parallel]</span></div>
-                <div class="text-slate-500 text-[11px]">Gemini 2.5 Flash &bull; Structured Logs</div>
+                <div class="text-slate-500 text-[11px]">Gemini Flash &bull; Structured Logs</div>
               </div>
               <span id="node-LogForensicsAgent" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">QUEUED</span>
             </div>
@@ -186,7 +190,7 @@
             <div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
               <div>
                 <div class="font-semibold text-slate-200">2a. RootCauseArchitect <span class="text-[10px] text-amber-400">[Loop]</span></div>
-                <div class="text-slate-500 text-[11px]">Gemini 2.5 Pro &bull; Shadow Patch + .bak</div>
+                <div class="text-slate-500 text-[11px]">Gemini Pro &bull; Shadow Patch + .bak</div>
               </div>
               <span id="node-RootCauseArchitect" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">QUEUED</span>
             </div>
@@ -241,12 +245,17 @@
     document.getElementById(isAdmin ? 'admin-view' : 'customer-view').classList.remove('hidden');
     document.getElementById(isAdmin ? 'nav-admin' : 'nav-customer').classList.add('bg-indigo-600', 'text-white');
 
+    let lastIdempotencyKey = null;
+
     // --- CUSTOMER PORTAL LOGIC ---
-    async function submitCustomerWire() {
+    async function submitCustomerWire(isReplay = false) {
       const btn = document.getElementById('btn-settle');
       const alertBox = document.getElementById('cust-alert');
       btn.disabled = true;
       btn.innerText = 'Processing Wire...';
+
+      const idemKey = (isReplay && lastIdempotencyKey) ? lastIdempotencyKey : ('wire-' + Date.now());
+      lastIdempotencyKey = idemKey;
 
       const payload = {
         merchant_id: document.getElementById('cust-merchant').value,
@@ -258,14 +267,18 @@
       try {
         const res = await fetch('/api/settle', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'wire-' + Date.now() },
+          headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': idemKey },
           body: JSON.stringify(payload)
         });
         const data = await res.json();
-        alertBox.classList.remove('hidden', 'bg-rose-950/60', 'border-rose-500/40', 'text-rose-300', 'bg-emerald-950/60', 'border-emerald-500/40', 'text-emerald-300');
-        if (res.ok) {
+        alertBox.classList.remove('hidden', 'bg-rose-950/60', 'border-rose-500/40', 'text-rose-300', 'bg-emerald-950/60', 'border-emerald-500/40', 'text-emerald-300', 'bg-sky-950/60', 'border-sky-500/40', 'text-sky-300');
+        if (res.ok && data.status === 'IDEMPOTENT_REPLAY') {
+          alertBox.classList.add('bg-sky-950/60', 'border-sky-500/40', 'text-sky-300');
+          alertBox.innerText = `IDEMPOTENT REPLAY BLOCKED DUPLICATE CHARGE: ${data.transaction_id} ($0.00 extra deducted)`;
+        } else if (res.ok) {
           alertBox.classList.add('bg-emerald-950/60', 'border-emerald-500/40', 'text-emerald-300');
           alertBox.innerText = `SETTLED: ${data.transaction_id} ($${data.amount_usd.toLocaleString()}) in ${data.latency_ms}ms`;
+          document.getElementById('btn-replay').classList.remove('hidden');
         } else {
           alertBox.classList.add('bg-rose-950/60', 'border-rose-500/40', 'text-rose-300');
           alertBox.innerText = `GATEWAY OUTAGE (HTTP ${res.status}): ${data.detail}`;
@@ -276,46 +289,46 @@
       } finally {
         btn.disabled = false;
         btn.innerText = 'Submit Wire Transfer';
-        refreshLedger();
+        await refreshLedger();
       }
     }
 
-  async function refreshLedger() {
-  if (isAdmin) return;
-  const res = await fetch('/api/ledger');
-  const data = await res.json();
-  const liqEl = document.getElementById('cust-liquidity');
-  if (liqEl && typeof data.available_liquidity_usd === 'number') {
-    liqEl.innerText = '$' + data.available_liquidity_usd.toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    });
-  }
-  const rows = data.transactions || [];
-  const tbody = document.getElementById('ledger-body');
-  if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="py-8 text-center text-slate-500">No settlements dispatched yet. Click "Submit Wire Transfer" to test.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = rows.map(r => {
-    const badge = r.status === 'SETTLED'
-      ? '<span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300">SETTLED</span>'
-      : r.status === 'IDEMPOTENT_REPLAY'
-      ? '<span class="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300">REPLAY SAFE</span>'
-      : '<span class="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300">503 FAILED</span>';
-    return `<tr>
-      <td class="py-2.5 px-3 text-slate-200">${r.transaction_id}</td>
-      <td class="py-2.5 px-3 text-slate-400">${r.merchant_id}</td>
-      <td class="py-2.5 px-3 text-slate-200">$${Number(r.amount_usd).toLocaleString()}</td>
-      <td class="py-2.5 px-3 text-slate-400">${r.latency_ms} ms</td>
-      <td class="py-2.5 px-3">${badge}</td>
-    </tr>`;
-  }).join('');
-}
-if (!isAdmin) {
-  refreshLedger();
-  setInterval(refreshLedger, 2000);
-}
+    async function refreshLedger() {
+      if (isAdmin) return;
+      const res = await fetch('/api/ledger');
+      const data = await res.json();
+      const liqEl = document.getElementById('cust-liquidity');
+      if (liqEl && typeof data.available_liquidity_usd === 'number') {
+        liqEl.innerText = '$' + data.available_liquidity_usd.toLocaleString('en-US', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        });
+      }
+      const rows = data.transactions || [];
+      const tbody = document.getElementById('ledger-body');
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="py-8 text-center text-slate-500">No settlements dispatched yet. Click "Submit Wire Transfer" to test.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = rows.map(r => {
+        const badge = r.status === 'SETTLED'
+          ? '<span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300">SETTLED</span>'
+          : r.status === 'IDEMPOTENT_REPLAY'
+          ? '<span class="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300">REPLAY SAFE</span>'
+          : '<span class="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300">503 FAILED</span>';
+        return `<tr>
+          <td class="py-2.5 px-3 text-slate-200">${r.transaction_id}</td>
+          <td class="py-2.5 px-3 text-slate-400">${r.merchant_id}</td>
+          <td class="py-2.5 px-3 text-slate-200">$${Number(r.amount_usd).toLocaleString()}</td>
+          <td class="py-2.5 px-3 text-slate-400">${r.latency_ms} ms</td>
+          <td class="py-2.5 px-3">${badge}</td>
+        </tr>`;
+      }).join('');
+    }
+    if (!isAdmin) {
+      refreshLedger();
+      setInterval(refreshLedger, 2000);
+    }
 
     // --- ADMIN SRE CONSOLE LOGIC ---
     function updateKPIs(m) {
@@ -352,6 +365,12 @@ if (!isAdmin) {
     }
 
     if (isAdmin) {
+      fetch('/api/admin/status').then(r => r.json()).then(st => {
+        if (st.watcher?.operational_mode) {
+          document.getElementById('mode-select').value = st.watcher.operational_mode;
+        }
+      });
+
       const evtSource = new EventSource('/api/events/stream');
       evtSource.onmessage = (e) => {
         const msg = JSON.parse(e.data);
@@ -407,6 +426,7 @@ if (!isAdmin) {
 
     async function resetDemo() {
       await fetch('/api/admin/reset', { method: 'POST' });
+      document.getElementById('btn-approve').classList.add('hidden');
       document.getElementById('agent-feed').innerHTML = '<div class="text-slate-500">Demo reset to baseline. Ready for next run.</div>';
       document.getElementById('diff-viewer').innerText = 'No patch staged yet.';
       document.getElementById('rca-viewer').innerText = 'Post-mortem report will appear here automatically once recovery completes.';

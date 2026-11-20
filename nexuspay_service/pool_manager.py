@@ -41,17 +41,30 @@ class NexusPayInfrastructure:
         with self._lock:
             if self._active_connections >= self.max_connections:
                 self.log_event(
-                    "ERROR",
-                    "db_pool_exhausted",
+                    "ALERT",
+                    "connection_pool_exhausted",
                     status=503,
                     active_connections=self._active_connections,
                     max_connections=self.max_connections,
                     error="Timeout acquiring database connection from NexusPay pool",
                 )
+                self.log_event(
+                    "ALERT",
+                    "business_impact",
+                    message="Enterprise B2B wire settlements failing with HTTP 503",
+                    unreleased_connections=self._active_connections,
+                )
                 raise ConnectionPoolExhaustedError(
                     f"503 GATEWAY_POOL_EXHAUSTED ({self._active_connections}/{self.max_connections} connections locked)"
                 )
             self._active_connections += 1
+            if self._active_connections >= self.max_connections - 1:
+                self.log_event(
+                    "WARN",
+                    "connection_pressure",
+                    active_connections=self._active_connections,
+                    max_connections=self.max_connections,
+                )
             return self._active_connections
 
     def release_connection(self) -> None:
@@ -80,7 +93,12 @@ class NexusPayInfrastructure:
             self._recent_outcomes.clear()
             self.available_liquidity_usd = INITIAL_LIQUIDITY_USD
         open(LOG_PATH, "w", encoding="utf-8").close()
-        self.log_event("INFO", "infrastructure_reset", active_connections=0, liquidity_usd=self.available_liquidity_usd)
+        self.log_event(
+            "INFO",
+            "infrastructure_reset",
+            active_connections=0,
+            available_liquidity_usd=self.available_liquidity_usd,
+        )
 
     def snapshot_golden_signals(self) -> GoldenSignalsSnapshot:
         now = time.time()
