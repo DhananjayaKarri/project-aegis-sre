@@ -186,8 +186,16 @@ class AutonomousIncidentWatcher:
 
     async def approve_pending_patch(self) -> Dict[str, Any]:
         msg = promote_staged_candidate_manually()
-        self._resolved_hashes.clear()
-        await event_bus.publish("human_approved_deploy", {"message": msg})
+        if self._latest_state.get("incident_hash"):
+            self._resolved_hashes.add(self._latest_state["incident_hash"])
+        await event_bus.publish(
+            "incident_resolved",
+            {
+                "incident_hash": self._latest_state.get("incident_hash", "manual"),
+                "state": self._latest_state,
+            },
+        )
+        await event_bus.publish("agent_message", {"author": "HumanSRE", "text": msg})
         return {"status": "promoted", "detail": msg}
 
     async def reset_demo(self) -> Dict[str, Any]:

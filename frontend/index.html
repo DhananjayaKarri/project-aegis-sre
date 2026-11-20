@@ -376,6 +376,7 @@ if (!isAdmin) {
         if (msg.type === 'incident_resolved') {
           setNodeStatus('SRE_Commander', 'COMPLETED');
           document.getElementById('incident-badge').className = 'text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300';
+          document.getElementById('btn-approve').classList.add('hidden');
           if (msg.data.state?.patch_diff) document.getElementById('diff-viewer').innerText = msg.data.state.patch_diff;
           if (msg.data.state?.postmortem_markdown) document.getElementById('rca-viewer').innerText = msg.data.state.postmortem_markdown;
         }

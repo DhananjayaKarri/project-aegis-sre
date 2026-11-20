@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 from google.adk.agents import Agent, LoopAgent, ParallelAgent, SequentialAgent
 from aegis_agents.callbacks import on_child_agent_end, on_child_agent_start
 from aegis_agents.tools import (
@@ -9,10 +10,14 @@ from aegis_agents.tools import (
     verify_and_promote_patch,
 )
 
-# --- STAGE 1: PARALLEL TRIAGE SWARM (Ultra-low latency via Gemini 2.5 Flash) ---
+# Configurable via .env (defaults to current active Gemini models for new AI Studio keys)
+FAST_MODEL = os.getenv("AEGIS_FAST_MODEL", "gemini-3-flash-preview")
+PRO_MODEL = os.getenv("AEGIS_PRO_MODEL", "gemini-3.1-pro-preview")
+
+# --- STAGE 1: PARALLEL TRIAGE SWARM ---
 telemetry_signal_agent = Agent(
     name="TelemetrySignalAgent",
-    model="gemini-2.5-flash",
+    model=FAST_MODEL,
     description="Analyzes Google SRE Four Golden Signals and error budget burn rate.",
     instruction=(
         "Call fetch_golden_signals() immediately. Summarize which of the Four Golden Signals "
@@ -26,7 +31,7 @@ telemetry_signal_agent = Agent(
 
 log_forensics_agent = Agent(
     name="LogForensicsAgent",
-    model="gemini-2.5-flash",
+    model=FAST_MODEL,
     description="Extracts root error signatures and failing code paths from structured logs.",
     instruction=(
         "Call inspect_service_logs() immediately. Identify the exact sequence of events leading to "
@@ -47,7 +52,7 @@ triage_swarm = ParallelAgent(
 # --- STAGE 2: SELF-CORRECTING PATCH & GUARDRAIL LOOP ---
 root_cause_architect = Agent(
     name="RootCauseArchitect",
-    model="gemini-2.5-pro",
+    model=PRO_MODEL,
     description="Diagnoses code-level bugs and stages a safe shadow patch.",
     instruction=(
         "You are a Principal Google SRE & Python Architect.\n"
@@ -58,7 +63,7 @@ root_cause_architect = Agent(
         "1. Call read_target_source_code() to inspect 'nexuspay_service/settlement_handler.py'.\n"
         "2. Fix the connection pool leak cleanly using a try...finally block so infra.release_connection() "
         "is ALWAYS called once conn_id is acquired, even when simulate_validation_warning or amount_usd >= 10000.0 triggers.\n"
-        "3. Preserve all existing function signatures, imports, idempotency logic, and logging.\n"
+        "3. Preserve all existing function signatures, imports, idempotency logic, liquidity deduction, and logging.\n"
         "4. Pass the complete, valid Python file content to stage_shadow_patch()."
     ),
     tools=[read_target_source_code, stage_shadow_patch],
@@ -69,7 +74,7 @@ root_cause_architect = Agent(
 
 guardrail_verifier = Agent(
     name="GuardrailVerifier",
-    model="gemini-2.5-flash",
+    model=FAST_MODEL,
     description="Executes shadow syntax & concurrency stress tests before promoting code.",
     instruction=(
         "Call verify_and_promote_patch() immediately to test the staged candidate against 15 concurrent "
@@ -91,7 +96,7 @@ healing_loop = LoopAgent(
 # --- STAGE 3: GOOGLE-STYLE BLAMELESS POST-MORTEM WRITER ---
 postmortem_writer = Agent(
     name="PostMortemWriter",
-    model="gemini-2.5-flash",
+    model=FAST_MODEL,
     description="Writes a Google SRE Blameless Post-Mortem and financial impact summary.",
     instruction=(
         "Write a concise, executive-ready Google SRE Blameless Post-Mortem in Markdown using:\n"
