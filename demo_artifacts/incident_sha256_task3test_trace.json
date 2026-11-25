@@ -1,0 +1,48 @@
+[
+  {
+    "event_id": "a5aa2334",
+    "incident_hash": "sha256:task3test",
+    "parent_agent": "SRE_Commander",
+    "child_agent": "TelemetrySignalAgent",
+    "stage": "TelemetrySignalAgent",
+    "status": "STARTED",
+    "summary": "SRE_Commander delegated [LITE] task to TelemetrySignalAgent (PASS).",
+    "agent_tier": "LITE",
+    "model_used": "unknown",
+    "tokens_in": 0,
+    "tokens_out": 0,
+    "total_tokens": 0,
+    "guardrail_verdict": "PASS",
+    "guardrail_reason": "Direct triage/gate delegation to TelemetrySignalAgent authorized.",
+    "required_state_keys": [],
+    "state_payload": {
+      "incident_hash": "sha256:task3test",
+      "guardrail_verdict": "PASS",
+      "guardrail_reason": "Direct triage/gate delegation to TelemetrySignalAgent authorized.",
+      "available_state_keys": [
+        "incident_hash",
+        "telemetry_summary"
+      ]
+    }
+  },
+  {
+    "event_id": "9bfb7f2a",
+    "incident_hash": "sha256:task3test",
+    "parent_agent": "SRE_Commander",
+    "child_agent": "TelemetrySignalAgent",
+    "stage": "TelemetrySignalAgent",
+    "status": "COMPLETED",
+    "summary": "TelemetrySignalAgent [LITE] completed execution and updated shared session state.",
+    "agent_tier": "LITE",
+    "model_used": "unknown",
+    "tokens_in": 0,
+    "tokens_out": 0,
+    "total_tokens": 0,
+    "guardrail_verdict": "PASS",
+    "guardrail_reason": "TelemetrySignalAgent output contract satisfied.",
+    "required_state_keys": [],
+    "state_payload": {
+      "telemetry_summary": "sat=100%"
+    }
+  }
+]

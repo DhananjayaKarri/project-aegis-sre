@@ -1,0 +1,34 @@
+{
+  "suite": "project-aegis-sre-mission-2026-evals",
+  "overall_passed": true,
+  "total_scenarios": 2,
+  "passed_scenarios": 2,
+  "results": [
+    {
+      "scenario": "connection_pool_leak",
+      "passed": true,
+      "duration_seconds": 0.581,
+      "checks": {
+        "initial_5_settled_2_503": true,
+        "slo_breach_detected": true,
+        "shadow_diff_generated": true,
+        "sandbox_15_wire_gate_passed": true,
+        "idempotency_zero_double_charge": true,
+        "pool_recovered_healthy": true
+      },
+      "verification_detail": "VERIFICATION_PASSED_AND_PROMOTED: Shadow patch passed 15/15 isolated compliance wires, atomic swap completed, live module hot-reloaded, and connection pool recovered to 0.0% (0/5)."
+    },
+    {
+      "scenario": "upstream_retry_storm",
+      "passed": true,
+      "duration_seconds": 0.215,
+      "checks": {
+        "storm_slo_degradation_detected": true,
+        "shadow_diff_generated": true,
+        "sandbox_15_wire_gate_passed": true,
+        "post_recovery_pool_zero_leaks": true
+      },
+      "verification_detail": "VERIFICATION_PASSED_AND_PROMOTED: Shadow patch passed 15/15 isolated compliance wires, atomic swap completed, live module hot-reloaded, and connection pool recovered to 0.0% (0/5)."
+    }
+  ]
+}

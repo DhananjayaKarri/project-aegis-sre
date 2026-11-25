@@ -1,7 +1,6 @@
 from __future__ import annotations
-from datetime import datetime, timezone
 from enum import Enum
-from typing import Literal
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -10,15 +9,24 @@ class OperationalMode(str, Enum):
     APPROVAL_GATE = "APPROVAL_GATE"
 
 
+class AgentTier(str, Enum):
+    LITE = "LITE"
+    REASONING = "REASONING"
+    CIRCUIT_BREAKER = "CIRCUIT_BREAKER"
+
+
+class GuardrailVerdict(str, Enum):
+    NOT_EVALUATED = "NOT_EVALUATED"
+    PASS = "PASS"
+    BLOCKED = "BLOCKED"
+    HELD_FOR_APPROVAL = "HELD_FOR_APPROVAL"
+
+
 class SettlementRequest(BaseModel):
-    merchant_id: str = Field(..., examples=["MERCH-8841"])
-    recipient_iban: str = Field(..., examples=["DE89370400440532013000"])
-    amount_usd: float = Field(..., gt=0, examples=[12500.00])
-    currency: str = Field(default="USD")
-    simulate_validation_warning: bool = Field(
-        default=False,
-        description="Triggers a minor validation path that exposes the connection leak.",
-    )
+    merchant_id: str = Field(..., min_length=2, max_length=64)
+    recipient_iban: str = Field(..., min_length=5, max_length=64)
+    amount_usd: float = Field(..., gt=0)
+    simulate_validation_warning: bool = False
 
 
 class SettlementReceipt(BaseModel):
@@ -26,15 +34,12 @@ class SettlementReceipt(BaseModel):
     idempotency_key: str
     merchant_id: str
     amount_usd: float
-    status: Literal["SETTLED", "FAILED", "IDEMPOTENT_REPLAY"]
+    status: str  # "SETTLED" | "IDEMPOTENT_REPLAY" | "FAILED"
     latency_ms: float
-    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    detail: str = "Settlement cleared via NexusPay Core"
+    detail: Optional[str] = None
 
 
 class GoldenSignalsSnapshot(BaseModel):
-    service_name: str = "nexuspay-settlement-gateway"
-    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     p95_latency_ms: float
     throughput_rps: float
     error_rate_pct: float
@@ -45,13 +50,43 @@ class GoldenSignalsSnapshot(BaseModel):
     healthy: bool
 
 
+class AgentTokenUsage(BaseModel):
+    agent_name: str
+    agent_tier: AgentTier = AgentTier.LITE
+    model_used: str = "unknown"
+    tokens_in: int = 0
+    tokens_out: int = 0
+    total_tokens: int = 0
+    llm_calls: int = 0
+
+
+class IncidentCostAndROI(BaseModel):
+    incident_hash: str = ""
+    total_tokens_in: int = 0
+    total_tokens_out: int = 0
+    total_tokens: int = 0
+    estimated_cost_usd: float = 0.0
+    mttr_seconds: float = 0.0
+    estimated_manual_minutes: float = 45.0
+    estimated_hours_saved: float = 0.75
+    cost_per_incident_usd: float = 0.0
+    per_agent_tokens: Dict[str, AgentTokenUsage] = Field(default_factory=dict)
+
+
 class AgentHandoffEvent(BaseModel):
     event_id: str
-    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     incident_hash: str
     parent_agent: str
     child_agent: str
     stage: str
-    status: Literal["STARTED", "COMPLETED", "FAILED", "WAITING_APPROVAL"]
+    status: str  # "STARTED" | "COMPLETED" | "WAITING_APPROVAL" | "BLOCKED"
     summary: str
-    state_payload: dict = Field(default_factory=dict)
+    agent_tier: AgentTier = AgentTier.LITE
+    model_used: str = "unknown"
+    tokens_in: int = 0
+    tokens_out: int = 0
+    total_tokens: int = 0
+    guardrail_verdict: GuardrailVerdict = GuardrailVerdict.NOT_EVALUATED
+    guardrail_reason: Optional[str] = None
+    required_state_keys: List[str] = Field(default_factory=list)
+    state_payload: Dict[str, Any] = Field(default_factory=dict)

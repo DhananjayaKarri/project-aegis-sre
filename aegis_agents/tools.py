@@ -123,13 +123,22 @@ def read_target_source_code() -> str:
 
 
 def stage_shadow_patch_direct(proposed_python_code: str, incident_hash: str) -> Tuple[str, str]:
-    """Core patch staging logic shared by ADK tools and resilient failover."""
+    """
+    Guardrailed patch staging: enforces non-empty diff and valid Python syntax before
+    writing a .bak backup and staging settlement_handler.candidate.py.
+    """
     safe_hash = str(incident_hash or "manual").replace(":", "_")[:16]
     bak_path = f"{TARGET_FILE}.{safe_hash}.bak"
     cleaned_code = _strip_code_fences(proposed_python_code)
 
     with open(TARGET_FILE, "r", encoding="utf-8") as f:
         original_code = f.read()
+
+    if cleaned_code.strip() == original_code.strip():
+        raise ValueError("GUARDRAIL_BLOCKED_NOOP_PATCH: Proposed code is identical to target source.")
+
+    # Pre-stage syntax check so broken code never enters candidate staging
+    compile(cleaned_code, CANDIDATE_FILE, "exec")
 
     with open(bak_path, "w", encoding="utf-8") as f:
         f.write(original_code)
@@ -156,9 +165,15 @@ def stage_shadow_patch(proposed_python_code: str, tool_context: ToolContext) -> 
     candidate file without touching live production code yet.
     """
     incident_hash = str(tool_context.state.get("incident_hash", "manual"))
-    unified_diff_text, bak_path = stage_shadow_patch_direct(proposed_python_code, incident_hash)
+    try:
+        unified_diff_text, bak_path = stage_shadow_patch_direct(proposed_python_code, incident_hash)
+    except Exception as exc:
+        tool_context.state["guardrail_last_error"] = str(exc)
+        return f"STAGE_BLOCKED: {exc}"
+
     tool_context.state["patch_diff"] = unified_diff_text
     tool_context.state["backup_path"] = bak_path
+    tool_context.state["patch_staged"] = True
     return f"Shadow patch staged at {CANDIDATE_FILE} (backup saved at {bak_path}). Diff:\n{unified_diff_text}"
 
 
@@ -170,13 +185,11 @@ def verify_and_promote_patch_direct(operational_mode: str, human_approved: bool 
     if not os.path.exists(CANDIDATE_FILE):
         return "VERIFICATION_FAILED: No staged candidate file found. Call stage_shadow_patch first.", False, False
 
-    # Guardrail 1: Python syntax check
     try:
         py_compile.compile(CANDIDATE_FILE, doraise=True)
     except py_compile.PyCompileError as exc:
         return f"VERIFICATION_FAILED (SyntaxError): {exc}", False, False
 
-    # Guardrail 2: Isolated 15-wire concurrency stress test (does NOT mutate live treasury/logs)
     try:
         spec = importlib.util.spec_from_file_location("shadow_handler", CANDIDATE_FILE)
         shadow_mod = importlib.util.module_from_spec(spec)
@@ -215,7 +228,6 @@ def verify_and_promote_patch_direct(operational_mode: str, human_approved: bool 
     except Exception as exc:
         return f"VERIFICATION_FAILED (RuntimeError during concurrency test): {exc}", False, False
 
-    # Guardrail 3: Human-in-the-Loop Approval Gate check
     if operational_mode == "APPROVAL_GATE" and not human_approved:
         return (
             "APPROVAL_REQUIRED: Shadow patch passed 15/15 isolated concurrency wires with 0 leaked connections. "
@@ -224,7 +236,6 @@ def verify_and_promote_patch_direct(operational_mode: str, human_approved: bool 
             True,
         )
 
-    # Atomic swap into live module & hot-reload in memory
     os.replace(CANDIDATE_FILE, TARGET_FILE)
     import nexuspay_service.settlement_handler as live_handler
     importlib.reload(live_handler)
@@ -243,6 +254,7 @@ def verify_and_promote_patch(tool_context: ToolContext) -> str:
     approved = bool(tool_context.state.get("human_approved", False))
     msg, passed, awaiting = verify_and_promote_patch_direct(mode, approved)
 
+    tool_context.state["sandbox_verified"] = passed
     if awaiting:
         tool_context.state["awaiting_human_approval"] = True
         tool_context.actions.escalate = True

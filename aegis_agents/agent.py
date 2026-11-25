@@ -1,6 +1,6 @@
 from __future__ import annotations
 import os
-from typing import List
+from typing import Dict, List
 from dotenv import load_dotenv
 from google.adk.agents import Agent, LoopAgent, ParallelAgent, SequentialAgent
 from aegis_agents.callbacks import on_child_agent_end, on_child_agent_start
@@ -11,16 +11,20 @@ from aegis_agents.tools import (
     stage_shadow_patch,
     verify_and_promote_patch,
 )
+from domain.schemas import AgentTier
 
 load_dotenv()
 
 
-def get_model_failover_chain() -> List[str]:
+def get_model_failover_chain(preferred_env: str | None = None) -> List[str]:
     """Ordered list of active Google AI Studio models to try before engaging fallback."""
     chain: List[str] = []
-    custom = os.getenv("AEGIS_MODEL") or os.getenv("AEGIS_FAST_MODEL")
-    if custom:
-        chain.append(custom.strip())
+    if preferred_env and os.getenv(preferred_env):
+        chain.append(os.environ[preferred_env].strip())
+    for env_key in ("AEGIS_MODEL", "AEGIS_FAST_MODEL"):
+        val = os.getenv(env_key)
+        if val and val.strip() not in chain:
+            chain.append(val.strip())
     for candidate in (
         "gemini-3.6-flash",
         "gemini-3.5-flash-lite",
@@ -32,18 +36,51 @@ def get_model_failover_chain() -> List[str]:
     return chain
 
 
-MODEL_FAILOVER_CHAIN = get_model_failover_chain()
+LITE_MODEL_CHAIN = get_model_failover_chain("AEGIS_LITE_MODEL")
+REASONING_MODEL_CHAIN = get_model_failover_chain("AEGIS_REASONING_MODEL")
+MODEL_FAILOVER_CHAIN = LITE_MODEL_CHAIN
+
+AGENT_TIER_MAP: Dict[str, AgentTier] = {
+    "TelemetrySignalAgent": AgentTier.LITE,
+    "LogForensicsAgent": AgentTier.LITE,
+    "RootCauseArchitect": AgentTier.REASONING,
+    "GuardrailVerifier": AgentTier.LITE,
+    "PostMortemWriter": AgentTier.REASONING,
+}
+
+
+def get_agent_tier(agent_name: str) -> AgentTier:
+    return AGENT_TIER_MAP.get(agent_name, AgentTier.LITE)
+
+
+def resolve_model_for_agent(agent_name: str, fallback_model: str | None = None) -> str:
+    """Routes Lite agents to a fast/compact model tier and Reasoning agents to the reasoning tier."""
+    tier = get_agent_tier(agent_name)
+    if tier == AgentTier.REASONING:
+        if os.getenv("AEGIS_REASONING_MODEL"):
+            return os.environ["AEGIS_REASONING_MODEL"].strip()
+        return fallback_model or REASONING_MODEL_CHAIN[0]
+    if os.getenv("AEGIS_LITE_MODEL"):
+        return os.environ["AEGIS_LITE_MODEL"].strip()
+    return fallback_model or LITE_MODEL_CHAIN[0]
 
 
 def build_sre_commander(model_name: str) -> SequentialAgent:
-    """Builds a fresh Google ADK Sequential -> Parallel -> Loop multi-agent topology for a given model."""
+    """
+    Builds a Google ADK Sequential -> Parallel -> Loop multi-agent topology using
+    Lite Agents for fast/low-token steps and Reasoning Agents for code patch & RCA synthesis.
+    """
+    lite_model = resolve_model_for_agent("TelemetrySignalAgent", model_name)
+    reasoning_model = resolve_model_for_agent("RootCauseArchitect", model_name)
+
+    # --- LITE STAGE 1A: GOLDEN SIGNALS SNAPSHOT (Compact prompt, minimal tokens) ---
     telemetry_signal_agent = Agent(
         name="TelemetrySignalAgent",
-        model=model_name,
-        description="Analyzes Google SRE Four Golden Signals and error budget burn rate.",
+        model=lite_model,
+        description="Lite agent: fetches and summarizes Golden Signals SLO breaches concisely.",
         instruction=(
-            "Call fetch_golden_signals() immediately. In 3 concise bullet points, report which of the "
-            "Four Golden Signals (Latency, Traffic, Errors, Saturation) breached SLO thresholds."
+            "Call fetch_golden_signals(). Output <=3 short bullets with breached signals, "
+            "pool saturation %, and error rate."
         ),
         tools=[fetch_golden_signals],
         output_key="telemetry_summary",
@@ -51,13 +88,14 @@ def build_sre_commander(model_name: str) -> SequentialAgent:
         after_agent_callback=on_child_agent_end,
     )
 
+    # --- LITE STAGE 1B: LOG FORENSICS EXTRACTOR (Compact prompt, minimal tokens) ---
     log_forensics_agent = Agent(
         name="LogForensicsAgent",
-        model=model_name,
-        description="Extracts root error signatures and failing code paths from structured logs.",
+        model=lite_model,
+        description="Lite agent: extracts root error event and failing code path from logs.",
         instruction=(
-            "Call inspect_service_logs() immediately. In 3 concise bullet points, identify the exact causal chain "
-            "leading to HTTP 503 connection_pool_exhausted errors (e.g., compliance_hold_early_return_leaked_connection)."
+            "Call inspect_service_logs(). Output <=3 short bullets identifying the 503 trigger "
+            "and leaked connection root cause."
         ),
         tools=[inspect_service_logs],
         output_key="log_forensics",
@@ -67,25 +105,22 @@ def build_sre_commander(model_name: str) -> SequentialAgent:
 
     triage_swarm = ParallelAgent(
         name="TriageSwarm",
-        description="Runs Golden Signals telemetry analysis and log forensics concurrently.",
+        description="Runs Lite telemetry and log triage agents concurrently.",
         sub_agents=[telemetry_signal_agent, log_forensics_agent],
     )
 
+    # --- REASONING STAGE 2A: ROOT CAUSE & SHADOW PATCH ARCHITECT ---
     root_cause_architect = Agent(
         name="RootCauseArchitect",
-        model=model_name,
-        description="Diagnoses code-level bugs and stages a safe shadow patch.",
+        model=reasoning_model,
+        description="Reasoning agent: diagnoses code bug and stages a safe try...finally shadow patch.",
         instruction=(
-            "You are a Principal Google SRE & Python Architect.\n"
-            "Context from TriageSwarm:\n"
-            "- Telemetry: {telemetry_summary?}\n"
-            "- Logs: {log_forensics?}\n"
-            "- Previous Verification Feedback: {verification_status?}\n\n"
-            "1. Call read_target_source_code() to inspect 'nexuspay_service/settlement_handler.py'.\n"
-            "2. Fix the connection pool leak cleanly using a try...finally block so infra.release_connection() "
-            "is ALWAYS executed after infra.acquire_connection(), even when simulate_validation_warning or amount_usd >= 10000.0 triggers.\n"
-            "3. Preserve all imports, function signatures, idempotency replay checks, and infra.deduct_liquidity(req.amount_usd) calls.\n"
-            "4. Call stage_shadow_patch() with the complete, raw Python file content (no markdown backticks)."
+            "You are a Principal SRE & Python Architect.\n"
+            "Context: Telemetry={telemetry_summary?} | Logs={log_forensics?} | RetryFeedback={verification_status?}\n"
+            "1. Call read_target_source_code() for 'nexuspay_service/settlement_handler.py'.\n"
+            "2. Wrap connection usage in try...finally so infra.release_connection() always runs on early return.\n"
+            "3. Keep function signatures, idempotency checks, and infra.deduct_liquidity(req.amount_usd) intact.\n"
+            "4. Call stage_shadow_patch() with complete raw Python code (no markdown fences)."
         ),
         tools=[read_target_source_code, stage_shadow_patch],
         output_key="architect_notes",
@@ -93,13 +128,13 @@ def build_sre_commander(model_name: str) -> SequentialAgent:
         after_agent_callback=on_child_agent_end,
     )
 
+    # --- LITE STAGE 2B: GUARDRAIL SANDBOX VERIFIER (Compact prompt, deterministic tool gate) ---
     guardrail_verifier = Agent(
         name="GuardrailVerifier",
-        model=model_name,
-        description="Executes shadow syntax & concurrency stress tests before promoting code.",
+        model=resolve_model_for_agent("GuardrailVerifier", lite_model),
+        description="Lite gate agent: runs 15-wire sandbox verification and reports status concisely.",
         instruction=(
-            "Call verify_and_promote_patch() immediately to run syntax validation and the 15-wire isolated "
-            "concurrency stress test. Report the exact verification result concisely."
+            "Call verify_and_promote_patch(). Return a concise 1-2 line verification summary."
         ),
         tools=[verify_and_promote_patch],
         output_key="verification_status",
@@ -109,27 +144,23 @@ def build_sre_commander(model_name: str) -> SequentialAgent:
 
     healing_loop = LoopAgent(
         name="GuardrailHealingLoop",
-        description="Iteratively generates and verifies code patches behind an automated stress-test gate.",
+        description="Iteratively stages and verifies patches behind the sandbox guardrail.",
         sub_agents=[root_cause_architect, guardrail_verifier],
         max_iterations=2,
     )
 
+    # --- REASONING STAGE 3: BLAMELESS POST-MORTEM WRITER ---
     postmortem_writer = Agent(
         name="PostMortemWriter",
-        model=model_name,
-        description="Writes a Google SRE Blameless Post-Mortem and financial impact summary.",
+        model=resolve_model_for_agent("PostMortemWriter", reasoning_model),
+        description="Reasoning agent: writes executive blameless post-mortem and financial safety summary.",
         instruction=(
-            "Write a concise, executive-ready Google SRE Blameless Post-Mortem in Markdown using:\n"
-            "- Incident Hash: {incident_hash?}\n"
-            "- Telemetry Findings: {telemetry_summary?}\n"
-            "- Log Forensics: {log_forensics?}\n"
-            "- Architect Fix Notes: {architect_notes?}\n"
-            "- Guardrail Verification: {verification_status?}\n\n"
-            "Include sections:\n"
-            "## Executive Summary\n"
-            "## Root Cause & Causal Chain\n"
-            "## Guardrail Verification & Financial Safety ($0.00 duplicate charges via X-Idempotency-Key)\n"
-            "## Preventive Action Items"
+            "Write a concise SRE Blameless Post-Mortem in Markdown from:\n"
+            "Incident={incident_hash?} | Telemetry={telemetry_summary?} | Logs={log_forensics?} | "
+            "Patch={architect_notes?} | Guardrail={verification_status?}\n"
+            "Sections required: ## Executive Summary, ## Root Cause & Causal Chain, "
+            "## Guardrail Verification & Financial Safety ($0.00 duplicate charges via X-Idempotency-Key), "
+            "## Preventive Action Items."
         ),
         output_key="postmortem_markdown",
         before_agent_callback=on_child_agent_start,
@@ -143,5 +174,4 @@ def build_sre_commander(model_name: str) -> SequentialAgent:
     )
 
 
-# Default root_agent export for ADK CLI compatibility
-root_agent = build_sre_commander(MODEL_FAILOVER_CHAIN[0])
+root_agent = build_sre_commander(LITE_MODEL_CHAIN[0])

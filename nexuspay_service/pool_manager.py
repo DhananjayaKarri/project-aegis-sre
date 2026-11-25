@@ -25,6 +25,7 @@ class NexusPayInfrastructure:
         self._idempotency_ledger: Dict[str, SettlementReceipt] = {}
         self._recent_outcomes: deque[tuple[float, bool, float]] = deque(maxlen=100)
         self.available_liquidity_usd: float = INITIAL_LIQUIDITY_USD
+        self.last_fault_scenario: str = "connection_pool_leak"
         if self.write_logs:
             os.makedirs("logs", exist_ok=True)
 
@@ -44,6 +45,7 @@ class NexusPayInfrastructure:
     def acquire_connection(self) -> int:
         with self._lock:
             if self._active_connections >= self.max_connections:
+                self.last_fault_scenario = "connection_pool_leak"
                 self.log_event(
                     "ALERT",
                     "connection_pool_exhausted",
@@ -83,6 +85,29 @@ class NexusPayInfrastructure:
             self._recent_outcomes.clear()
         self.log_event("INFO", "connection_pool_recovered", active_connections=0, max_connections=self.max_connections)
 
+    def trigger_retry_storm(self, incoming_rps: int = 850, retry_multiplier: int = 5) -> None:
+        """Second connected failure mode: upstream FX/bank retry storm amplifying latency and 5xx errors."""
+        self.last_fault_scenario = "upstream_retry_storm"
+        outgoing_requests = incoming_rps * retry_multiplier
+        self.log_event(
+            "WARN",
+            "retry_amplification",
+            incoming_requests=incoming_rps,
+            outgoing_requests=outgoing_requests,
+            backoff="none",
+        )
+        self.log_event(
+            "ALERT",
+            "upstream_fx_timeout_storm",
+            status=503,
+            p95_ms=4200,
+            error="Unthrottled upstream FX settlement retries causing SLO burn spike",
+        )
+        with self._lock:
+            self._active_connections = self.max_connections
+            for _ in range(12):
+                self.record_transaction(latency_ms=3200.0, success=False)
+
     def deduct_liquidity(self, amount_usd: float) -> float:
         with self._lock:
             self.available_liquidity_usd = round(max(0.0, self.available_liquidity_usd - amount_usd), 2)
@@ -103,6 +128,7 @@ class NexusPayInfrastructure:
             self._idempotency_ledger.clear()
             self._recent_outcomes.clear()
             self.available_liquidity_usd = INITIAL_LIQUIDITY_USD
+            self.last_fault_scenario = "connection_pool_leak"
         if self.write_logs:
             open(LOG_PATH, "w", encoding="utf-8").close()
             self.log_event(
