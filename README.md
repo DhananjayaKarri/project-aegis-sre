@@ -58,3 +58,111 @@ project-aegis-sre/
 ├── Dockerfile                # Container specification for Cloud Run deployment
 ├── requirements.txt          # Python dependencies
 └── .env.example              # Environment variable template
+
+## Local Setup & Execution
+
+Follow these steps to set up and run Project Aegis SRE locally.
+
+### Prerequisites
+
+Ensure the following are installed on your system:
+
+- **Python 3.10 or higher**
+- **Google AI Studio API Key** (`GOOGLE_API_KEY`)
+
+### Installation
+
+**1. Clone the repository**
+
+```bash
+git clone https://github.com/DhananjayaKarri/project-aegis-sre.git
+cd project-aegis-sre
+```
+
+**2. Create and activate a virtual environment**
+
+```bash
+python -m venv .venv
+```
+
+Activate the virtual environment:
+
+```bash
+# Windows
+.venv\Scripts\activate
+
+# macOS/Linux
+source .venv/bin/activate
+```
+
+**3. Install dependencies**
+
+```bash
+pip install -r requirements.txt
+```
+
+**4. Configure environment variables**
+
+Create a `.env` file using the example configuration:
+
+```bash
+cp .env.example .env
+```
+
+Open the `.env` file and configure your API key:
+
+```env
+GOOGLE_API_KEY=your_api_key_here
+GOOGLE_GENAI_USE_VERTEXAI=FALSE
+```
+
+Replace `your_api_key_here` with your actual Google AI Studio API key.
+
+### Running the Application
+
+**1. Start the FastAPI server**
+
+```bash
+uvicorn control_plane.app:app --host 127.0.0.1 --port 8080
+```
+
+**2. Open the application in two browser windows side by side**
+
+| Application | URL |
+|---|---|
+| Customer Portal | http://127.0.0.1:8080/ |
+| Admin SRE Console | http://127.0.0.1:8080/admin |
+
+### Demo Walkthrough
+
+Follow these steps to explore the application's core capabilities.
+
+#### 1. Verify Normal Operation
+
+- Navigate to the **Customer Portal** (`/`).
+- Click **Submit Wire Transfer**.
+- Verify that the wire transfer settles successfully (`200 OK`) and deducts the corresponding amount from Available Settlement Liquidity.
+- Click **Replay Last Wire** to verify that idempotency protection prevents duplicate deductions.
+
+#### 2. Trigger Outage & Self-Healing
+
+- Navigate to the **Admin SRE Console** (`/admin`).
+- Select either:
+  - **Mode: Full Autonomous**
+  - **Mode: Human Approval Gate**
+- Click **Simulate Settlement Surge (Chaos)**.
+- Observe the self-healing workflow:
+  1. Connection pool saturation reaches 100% (5/5).
+  2. The ADK pipeline gets triggered.
+  3. The `try...finally` patch is staged.
+  4. Pool health is restored to 0% saturation (0/5).
+
+#### 3. Reset Demo State
+
+- Click **Reset Demo Baseline** in the top toolbar.
+- This restores the original buggy `settlement_handler.py` baseline.
+- Treasury liquidity is also reset to its initial state, preparing the application for the next demonstration.
+
+---
+
+**You're all set!** Follow the walkthrough to experience Project Aegis SRE's autonomous incident detection and self-healing capabilities.
