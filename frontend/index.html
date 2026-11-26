@@ -172,44 +172,53 @@
 
           <div class="pl-4 border-l-2 border-slate-800 space-y-2">
             <div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
-              <div>
+              <div class="w-48">
                 <div class="font-semibold text-slate-200">1a. TelemetrySignalAgent <span class="text-[10px] text-sky-400">[Parallel]</span></div>
                 <div class="text-slate-500 text-[11px]">Gemini Flash &bull; Golden Signals</div>
               </div>
+               <span id="node-TelemetrySignalAgent-tokens" class="text-slate-500 text-[11px]">0 tok</span>
               <span id="node-TelemetrySignalAgent" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">QUEUED</span>
             </div>
 
             <div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
-              <div>
+              <div  class="w-48">
                 <div class="font-semibold text-slate-200">1b. LogForensicsAgent <span class="text-[10px] text-sky-400">[Parallel]</span></div>
                 <div class="text-slate-500 text-[11px]">Gemini Flash &bull; Structured Logs</div>
               </div>
+              <span id="node-LogForensicsAgent-tokens" class="text-slate-500 text-[11px]">0 tok</span>
               <span id="node-LogForensicsAgent" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">QUEUED</span>
             </div>
 
             <div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
-              <div>
+              <div  class="w-48">
                 <div class="font-semibold text-slate-200">2a. RootCauseArchitect <span class="text-[10px] text-amber-400">[Loop]</span></div>
                 <div class="text-slate-500 text-[11px]">Gemini Pro &bull; Shadow Patch + .bak</div>
               </div>
+              <span id="node-RootCauseArchitect-tokens" class="text-slate-500 text-[11px]">0 tok</span>
               <span id="node-RootCauseArchitect" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">QUEUED</span>
             </div>
 
             <div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
-              <div>
+              <div  class="w-48">
                 <div class="font-semibold text-slate-200">2b. GuardrailVerifier <span class="text-[10px] text-amber-400">[Gate]</span></div>
                 <div class="text-slate-500 text-[11px]">15-Wire Concurrency Smoke Test</div>
               </div>
+              <span id="node-GuardrailVerifier-tokens" class="text-slate-500 text-[11px]">0 tok</span>
               <span id="node-GuardrailVerifier" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">QUEUED</span>
             </div>
 
             <div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
-              <div>
+              <div  class="w-48">
                 <div class="font-semibold text-slate-200">3. PostMortemWriter</div>
                 <div class="text-slate-500 text-[11px]">Blameless RCA + Git Artifact Export</div>
               </div>
+              <span id="node-PostMortemWriter-tokens" class="text-slate-500 text-[11px]">0 tok</span>
               <span id="node-PostMortemWriter" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">QUEUED</span>
             </div>
+          </div>
+          <div>
+            <span>Total tokens usage:</span>
+            <span id="node-token-count">0</span>
           </div>
         </div>
       </div>
@@ -342,6 +351,30 @@
       document.getElementById('kpi-saturation').className = `text-2xl font-mono font-bold mt-1 ${m.pool_saturation_pct >= 90 ? 'text-rose-400' : 'text-emerald-400'}`;
     }
 
+    const tokenManager = (() => {
+      let tokenCounts = {};
+      return {
+        updateTokens: (agentName,count) => {
+          tokenCounts[agentName] = count;
+        },
+        getTotalTokens: () => {
+          return Object.values(tokenCounts).reduce((sum, count) => sum + count, 0);
+        },
+        reset: () => {
+          tokenCounts = {};
+        }
+      }
+    })();
+
+    const tokenFormatter = new Intl.NumberFormat('en-Us', {
+      notation:'compact',
+      maximumFractionDigits: 1
+    })
+
+    function formatTokens(tokens) {
+      return tokenFormatter.format(tokens).toLowerCase();
+    }
+
     function appendFeed(title, body, colorClass = 'text-indigo-300') {
       const feed = document.getElementById('agent-feed');
       if (feed.children.length === 1 && feed.children[0].innerText.startsWith('Waiting')) feed.innerHTML = '';
@@ -362,6 +395,15 @@
         status === 'WAITING_APPROVAL' ? 'bg-purple-500/20 text-purple-300' :
         'bg-slate-800 text-slate-400'
       );
+    }
+
+    function setNodeTokens(agentName, tokens) {
+      const agentTokensEl = document.getElementById('node-' + agentName + '-tokens');
+      const totalTokensEl = document.getElementById('node-token-count');
+      if (!agentTokensEl) return;
+      tokenManager.updateTokens(agentName, tokens);
+      agentTokensEl.innerText = formatTokens(tokens) + ' tok';
+      totalTokensEl.innerText = formatTokens(tokenManager.getTotalTokens());
     }
 
     if (isAdmin) {
@@ -400,6 +442,7 @@
         if (msg.type === 'agent_handoff') {
           const d = msg.data;
           setNodeStatus(d.child_agent, d.status);
+          setNodeTokens(d.child_agent, d.total_tokens);
           appendFeed(`${d.parent_agent} -> ${d.child_agent} [${d.status}]`, d.summary, 'text-sky-300');
           if (d.state_payload?.patch_diff) document.getElementById('diff-viewer').innerText = d.state_payload.patch_diff;
           if (d.state_payload?.postmortem_markdown) document.getElementById('rca-viewer').innerText = d.state_payload.postmortem_markdown;
@@ -457,7 +500,11 @@
       document.getElementById('diff-viewer').innerText = 'No patch staged yet.';
       document.getElementById('rca-viewer').innerText = 'Post-mortem report will appear here automatically once recovery completes.';
       document.getElementById('incident-badge').innerText = 'IDLE';
-      ['SRE_Commander','TelemetrySignalAgent','LogForensicsAgent','RootCauseArchitect','GuardrailVerifier','PostMortemWriter'].forEach(n => setNodeStatus(n, 'QUEUED'));
+      ['SRE_Commander','TelemetrySignalAgent','LogForensicsAgent','RootCauseArchitect','GuardrailVerifier','PostMortemWriter'].forEach(n => {
+        setNodeStatus(n, 'QUEUED');
+        setNodeTokens(n, 0);
+      })
+      tokenManager.reset();
     }
   </script>
 </body>
