@@ -2,16 +2,20 @@ from __future__ import annotations
 import difflib
 import importlib
 import importlib.util
+import json
 import os
 import py_compile
 import re
 import shutil
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from google.adk.tools import ToolContext
+from aegis_agents.pattern_memory import normalize_fault_signature, save_verified_pattern
 from domain.schemas import SettlementRequest
 from nexuspay_service.pool_manager import INITIAL_LIQUIDITY_USD, LOG_PATH, NexusPayInfrastructure, infra
+
 
 TARGET_FILE = os.path.join("nexuspay_service", "settlement_handler.py")
 CANDIDATE_FILE = os.path.join("nexuspay_service", "settlement_handler.candidate.py")
@@ -33,7 +37,7 @@ def _strip_code_fences(code: str) -> str:
 
 
 def build_deterministic_patched_handler() -> str:
-    """Produces a clean try...finally patched version of settlement_handler.py."""
+    """Produces a clean, 4-invariant-safe version of settlement_handler.py."""
     return '''from __future__ import annotations
 import time
 import uuid
@@ -107,13 +111,55 @@ def fetch_golden_signals() -> Dict[str, Any]:
     return infra.snapshot_golden_signals().model_dump()
 
 
-def inspect_service_logs(tail_lines: int = 35) -> str:
-    """Reads the most recent structured JSON telemetry and error logs from NexusPay."""
-    if not os.path.exists(LOG_PATH):
-        return "No service logs found."
-    with open(LOG_PATH, "r", encoding="utf-8") as f:
-        lines = f.readlines()[-tail_lines:]
-    return "".join(lines) if lines else "Service log is currently empty."
+def inspect_service_logs(last_n_lines: int = 25) -> str:
+    """
+    Incident-aware, deduplicated log reader:
+    1. Reads only events after the latest infrastructure_reset / connection_pool_recovered marker.
+    2. Filters to WARN/ALERT/ERROR entries.
+    3. Aggregates identical events with counts to minimize LLM input tokens.
+    """
+    log_path = LOG_PATH if os.path.exists(LOG_PATH) else os.path.join("logs", "settlement.log")
+    if not os.path.exists(log_path):
+        return "No settlement.log found."
+
+    with open(log_path, "r", encoding="utf-8") as f:
+        lines = [line.strip() for line in f if line.strip()]
+
+    if not lines:
+        return "settlement.log is empty."
+
+    start_idx = 0
+    for idx, raw in enumerate(lines):
+        if '"infrastructure_reset"' in raw or '"connection_pool_recovered"' in raw:
+            start_idx = idx + 1
+
+    incident_lines = lines[start_idx:][-max(last_n_lines, 1):]
+    counts: Counter[tuple[str, str, str]] = Counter()
+
+    for raw in incident_lines:
+        try:
+            rec = json.loads(raw)
+        except Exception:
+            continue
+        level = str(rec.get("level", "INFO")).upper()
+        if level not in ("WARN", "WARNING", "ALERT", "ERROR", "CRITICAL"):
+            continue
+        event = str(rec.get("event", "unknown"))
+        detail = str(
+            rec.get("error")
+            or rec.get("message")
+            or f"active={rec.get('active_connections')}/{rec.get('max_connections')}"
+        )
+        counts[(level, event, detail)] += 1
+
+    if not counts:
+        return "No WARN/ALERT/ERROR events in current incident window."
+
+    summary_lines = [
+        f"[x{cnt}] {lvl} {evt}: {detail}"
+        for (lvl, evt, detail), cnt in counts.most_common(8)
+    ]
+    return "\n".join(summary_lines)
 
 
 def read_target_source_code() -> str:
@@ -137,7 +183,6 @@ def stage_shadow_patch_direct(proposed_python_code: str, incident_hash: str) -> 
     if cleaned_code.strip() == original_code.strip():
         raise ValueError("GUARDRAIL_BLOCKED_NOOP_PATCH: Proposed code is identical to target source.")
 
-    # Pre-stage syntax check so broken code never enters candidate staging
     compile(cleaned_code, CANDIDATE_FILE, "exec")
 
     with open(bak_path, "w", encoding="utf-8") as f:
@@ -179,7 +224,11 @@ def stage_shadow_patch(proposed_python_code: str, tool_context: ToolContext) -> 
 
 def verify_and_promote_patch_direct(operational_mode: str, human_approved: bool = False) -> Tuple[str, bool, bool]:
     """
-    Validates staged candidate via bytecode compilation and an isolated 15-wire concurrency stress test.
+    Validates staged candidate via bytecode compilation and an isolated 4-invariant sandbox gate:
+      1. 15-wire concurrency stress test -> 0 leaked connections.
+      2. p95 latency <= 250ms SLO.
+      3. Accurate liquidity deduction.
+      4. X-Idempotency-Key replay -> $0.00 duplicate charge + status='IDEMPOTENT_REPLAY'.
     Returns (status_message, passed, awaiting_approval).
     """
     if not os.path.exists(CANDIDATE_FILE):
@@ -212,6 +261,8 @@ def verify_and_promote_patch_direct(operational_mode: str, human_approved: bool 
             results = list(pool.map(_stress_call, range(15)))
 
         post_metrics = sandbox_infra.snapshot_golden_signals()
+
+        # Invariant 1: 0 leaked connections
         if len(results) != 15 or post_metrics.active_connections != 0:
             return (
                 f"VERIFICATION_FAILED (ConnectionLeak): Expected 0 active connections after 15 wires, "
@@ -219,19 +270,57 @@ def verify_and_promote_patch_direct(operational_mode: str, human_approved: bool 
                 False,
                 False,
             )
+
+        # Invariant 2: p95 latency <= 250ms SLO
+        if post_metrics.p95_latency_ms > 250.0:
+            return (
+                f"VERIFICATION_FAILED (LatencySLOBreach): Sandbox p95 latency was "
+                f"{post_metrics.p95_latency_ms}ms (SLO limit: <= 250ms).",
+                False,
+                False,
+            )
+
+        # Invariant 3: Liquidity deduction intact
         if sandbox_infra.available_liquidity_usd >= INITIAL_LIQUIDITY_USD:
             return (
                 "VERIFICATION_FAILED (LiquidityRegression): Candidate patch stopped calling infra.deduct_liquidity().",
                 False,
                 False,
             )
+
+        # Invariant 4: X-Idempotency-Key replay protection ($0.00 duplicate charge + IDEMPOTENT_REPLAY status)
+        idem_req = SettlementRequest(
+            merchant_id="VERIFY-IDEM",
+            recipient_iban="DE89370400440532013000",
+            amount_usd=5000.00,
+            simulate_validation_warning=False,
+        )
+        shadow_mod.execute_settlement(idem_req, idempotency_key="sandbox-idem-verify-key")
+        liq_before_replay = sandbox_infra.available_liquidity_usd
+        replay_receipt = shadow_mod.execute_settlement(idem_req, idempotency_key="sandbox-idem-verify-key")
+        liq_after_replay = sandbox_infra.available_liquidity_usd
+
+        if abs(liq_after_replay - liq_before_replay) > 1e-6:
+            return (
+                "VERIFICATION_FAILED (IdempotencyRegression): Replayed X-Idempotency-Key deducted liquidity twice! "
+                "Check infra.get_idempotent_receipt(idempotency_key) before acquire_connection().",
+                False,
+                False,
+            )
+        if replay_receipt.status != "IDEMPOTENT_REPLAY":
+            return (
+                f"VERIFICATION_FAILED (IdempotencyStatus): Replayed receipt returned status='{replay_receipt.status}', "
+                "expected 'IDEMPOTENT_REPLAY' via existing.model_copy(update={'status': 'IDEMPOTENT_REPLAY'}).",
+                False,
+                False,
+            )
     except Exception as exc:
-        return f"VERIFICATION_FAILED (RuntimeError during concurrency test): {exc}", False, False
+        return f"VERIFICATION_FAILED (RuntimeError during sandbox verification): {exc}", False, False
 
     if operational_mode == "APPROVAL_GATE" and not human_approved:
         return (
-            "APPROVAL_REQUIRED: Shadow patch passed 15/15 isolated concurrency wires with 0 leaked connections. "
-            "Live production code is untouched; awaiting SRE click on 'Approve & Deploy Staged Patch'.",
+            "APPROVAL_REQUIRED: Shadow patch passed all 4 sandbox invariants (15/15 wires, 0 leaks, "
+            "p95 <= 250ms, $0.00 duplicate charges). Live code untouched; awaiting SRE approval.",
             True,
             True,
         )
@@ -241,8 +330,8 @@ def verify_and_promote_patch_direct(operational_mode: str, human_approved: bool 
     importlib.reload(live_handler)
     infra.release_leaked_connections()
     return (
-        "VERIFICATION_PASSED_AND_PROMOTED: Shadow patch passed 15/15 isolated compliance wires, "
-        "atomic swap completed, live module hot-reloaded, and connection pool recovered to 0.0% (0/5).",
+        "VERIFICATION_PASSED_AND_PROMOTED: Shadow patch passed all 4 sandbox invariants "
+        "(15/15 wires, 0 leaks, p95 <= 250ms, $0.00 duplicate charges), atomic swap & hot-reload complete.",
         True,
         False,
     )
@@ -286,3 +375,61 @@ def restore_baseline_bug() -> str:
     importlib.reload(live_handler)
     infra.reset_state()
     return "Restored baseline buggy settlement_handler.py and reset treasury & pool state."
+
+
+def run_post_deploy_canary_check(
+    backup_path: Optional[str] = None,
+    unified_diff: Optional[str] = None,
+    fault_signature: Optional[str] = None,
+) -> Tuple[bool, str]:
+    """
+    Executes a live post-promotion canary wire + Golden Signals check.
+    If saturation, latency, or 5xx error rate regresses, automatically rolls back from .bak.
+    """
+    try:
+        import nexuspay_service.settlement_handler as live_handler
+        canary_req = SettlementRequest(
+            merchant_id="CANARY-PROBE-01",
+            recipient_iban="DE89370400440532013000",
+            amount_usd=100.00,
+            simulate_validation_warning=True,
+        )
+        receipt = live_handler.execute_settlement(canary_req, idempotency_key="canary-health-probe")
+        signals = infra.snapshot_golden_signals()
+
+        if (
+            receipt.status not in ("SETTLED", "IDEMPOTENT_REPLAY")
+            or not signals.healthy
+            or signals.active_connections != 0
+            or signals.p95_latency_ms > 250.0
+        ):
+            if backup_path and os.path.exists(backup_path):
+                shutil.copy2(backup_path, TARGET_FILE)
+                importlib.reload(live_handler)
+            return (
+                False,
+                f"CANARY_ROLLBACK_TRIGGERED: Live health regressed (healthy={signals.healthy}, "
+                f"active_conns={signals.active_connections}, p95={signals.p95_latency_ms}ms). "
+                f"Restored {backup_path or 'baseline'}.",
+            )
+
+        with open(TARGET_FILE, "r", encoding="utf-8") as f:
+            promoted_code = f.read()
+        sig = fault_signature or normalize_fault_signature(TARGET_FILE, log_forensics=inspect_service_logs(25))
+        save_verified_pattern(
+            fault_signature=sig,
+            target_file=TARGET_FILE,
+            patched_code=promoted_code,
+            unified_diff=unified_diff or f"Verified 4-invariant remediation pattern for {sig}",
+        )
+        return (
+            True,
+            f"CANARY_VERIFIED_HEALTHY: Live probe settled cleanly (0 leaked connections, p95={signals.p95_latency_ms}ms) "
+            f"and pattern '{sig}' saved to memory.",
+        )
+    except Exception as exc:
+        if backup_path and os.path.exists(backup_path):
+            shutil.copy2(backup_path, TARGET_FILE)
+            import nexuspay_service.settlement_handler as live_handler
+            importlib.reload(live_handler)
+        return False, f"CANARY_ROLLBACK_TRIGGERED ({exc}): Automatically rolled back to {backup_path}."

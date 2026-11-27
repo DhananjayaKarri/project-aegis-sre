@@ -9,14 +9,26 @@
 <body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased">
 
   <!-- TOP DEMO NAVIGATION BAR -->
-  <nav class="border-b border-slate-800 bg-slate-900/90 backdrop-blur px-6 py-3 flex items-center justify-between sticky top-0 z-50">
+  <nav class="border-b border-slate-800 bg-slate-900/90 backdrop-blur px-6 py-3 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-50">
     <div class="flex items-center gap-3">
       <span class="h-3 w-3 rounded-full bg-emerald-400 animate-pulse"></span>
       <span class="font-bold tracking-tight text-lg text-white">NexusPay <span class="text-slate-400 font-normal">|</span> <span class="text-indigo-400">Aegis-SRE</span></span>
     </div>
-    <div class="flex items-center gap-2 bg-slate-800 p-1 rounded-lg border border-slate-700">
-      <a href="/" id="nav-customer" class="px-4 py-1.5 rounded-md text-sm font-medium transition">Customer Portal (/)</a>
-      <a href="/admin" id="nav-admin" class="px-4 py-1.5 rounded-md text-sm font-medium transition">Admin SRE Console (/admin)</a>
+
+    <div class="flex flex-wrap items-center gap-3">
+      <div class="flex items-center gap-2 bg-slate-800 p-1 rounded-lg border border-slate-700">
+        <a href="/" id="nav-customer" class="px-4 py-1.5 rounded-md text-sm font-medium transition">Customer Portal (/)</a>
+        <a href="/admin" id="nav-admin" class="px-4 py-1.5 rounded-md text-sm font-medium transition">Admin SRE Console (/admin)</a>
+      </div>
+
+      <!-- Cumulative Session Cost Tracker (Top Right, resets on Clear Pattern Memory) -->
+      <div id="session-cost-pill" class="hidden items-center gap-2.5 bg-emerald-950/50 border border-emerald-500/40 px-3.5 py-1.5 rounded-lg" title="Cumulative Gemini production API cost across all fixes in this session ($0.30/1M in, $2.50/1M out). Resets on Clear Pattern Memory.">
+        <div class="text-[10px] uppercase tracking-wider text-emerald-300/80 font-semibold leading-tight">
+          Session Cost
+        </div>
+        <div id="session-cost-usd" class="text-sm font-mono font-bold text-emerald-300">$0.0000</div>
+        <div id="session-cost-meta" class="text-[11px] font-mono text-slate-300 border-l border-emerald-500/30 pl-2">0 fixes &bull; 0 tok</div>
+      </div>
     </div>
   </nav>
 
@@ -99,32 +111,54 @@
   <!-- ===================================================================== -->
   <main id="admin-view" class="hidden max-w-7xl mx-auto p-6 space-y-6">
     <!-- Control Toolbar -->
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
-      <div>
-        <h1 class="text-xl font-bold text-white">Project Aegis-SRE — Autonomous Command Center</h1>
-        <p class="text-xs text-slate-400">Google ADK Multi-Agent Orchestrator &bull; Four Golden Signals Monitor &bull; Guardrailed Self-Healing</p>
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 class="text-xl font-bold text-white">Project Aegis-SRE — Autonomous Command Center</h1>
+          <p class="text-xs text-slate-400">Google ADK Multi-Agent Orchestrator &bull; Pattern Memory (0-Token / 60-40 Delta) &bull; 4-Invariant Sandbox &amp; Canary Auto-Rollback</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2.5">
+          <!-- Operational Mode Toggle -->
+          <select id="mode-select" onchange="changeMode(this.value)" class="bg-slate-950 border border-slate-700 text-xs rounded-lg px-3 py-2 text-slate-200">
+            <option value="AUTONOMOUS">Mode: Full Autonomous</option>
+            <option value="APPROVAL_GATE">Mode: Human Approval Gate</option>
+          </select>
+
+          <!-- Approve Button (visible in Approval Gate mode) -->
+          <button id="btn-approve" onclick="approvePatch()" class="hidden bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs px-4 py-2 rounded-lg transition animate-pulse">
+            Approve & Deploy Staged Patch
+          </button>
+
+          <!-- Clear Pattern Memory (also resets top-right cumulative session cost) -->
+          <button id="btn-clear-patterns" onclick="clearPatternMemory()" class="bg-indigo-950 hover:bg-indigo-900 text-indigo-200 border border-indigo-500/40 text-xs px-3 py-2 rounded-lg transition">
+            Clear Pattern Memory
+          </button>
+
+          <!-- Reset Demo Baseline -->
+          <button onclick="resetDemo()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs px-3 py-2 rounded-lg transition">
+            Reset Demo Baseline
+          </button>
+        </div>
       </div>
-      <div class="flex flex-wrap items-center gap-3">
-        <!-- Operational Mode Toggle -->
-        <select id="mode-select" onchange="changeMode(this.value)" class="bg-slate-950 border border-slate-700 text-xs rounded-lg px-3 py-2 text-slate-200">
-          <option value="AUTONOMOUS">Mode: Full Autonomous</option>
-          <option value="APPROVAL_GATE">Mode: Human Approval Gate</option>
-        </select>
 
-        <!-- Approve Button (visible in Approval Gate mode) -->
-        <button id="btn-approve" onclick="approvePatch()" class="hidden bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs px-4 py-2 rounded-lg transition animate-pulse">
-          Approve & Deploy Staged Patch
-        </button>
-
-        <!-- Chaos Surge Trigger -->
-        <button onclick="triggerChaosSurge()" id="btn-chaos" class="bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs px-4 py-2 rounded-lg transition shadow-lg shadow-rose-600/20">
-          Simulate Settlement Surge (Chaos)
-        </button>
-
-        <!-- Reset Demo Baseline -->
-        <button onclick="resetDemo()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs px-3 py-2 rounded-lg transition">
-          Reset Demo Baseline
-        </button>
+      <!-- Isolated 5-Scenario Chaos Injector Bar -->
+      <div class="pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-2.5 flex-1 min-w-[280px]">
+          <span class="text-[11px] uppercase tracking-wider font-semibold text-slate-400">Isolated Fault Scenario:</span>
+          <select id="scenario-select" onchange="updateScenarioHint()" class="flex-1 min-w-[260px] max-w-xl bg-slate-950 border border-slate-700 text-xs rounded-lg px-3 py-2 text-slate-100">
+            <option value="connection_pool_leak">1. Connection Pool Exhaustion (Compliance Early Return)</option>
+            <option value="missing_idempotency_guard">2. Missing Idempotency Guard (Duplicate Wire Charge)</option>
+            <option value="latency_regression_spike">3. Latency Regression Spike (Blocking Sync Call)</option>
+            <option value="upstream_retry_storm">4. Upstream FX Retry Storm (Unbounded 5x Retries)</option>
+            <option value="connection_pool_leak_sanctions_variant">5. Pool Leak Variant — Sanctions Branch (60/40 Delta Showcase)</option>
+          </select>
+          <button onclick="injectSelectedScenario()" id="btn-chaos" class="bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs px-4 py-2 rounded-lg transition shadow-lg shadow-rose-600/20">
+            Inject Selected Fault
+          </button>
+        </div>
+        <div id="scenario-hint" class="text-[11px] text-slate-400 font-mono">
+          Cold NOVEL_FAULT (~3.5-5k tok) &rarr; Repeat EXACT_REUSE (0 tok · $0.0000)
+        </div>
       </div>
     </div>
 
@@ -156,7 +190,7 @@
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
       <!-- Agent Topology Nodes -->
       <div class="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
-        <div class="flex items-center justify-between">
+        <div class="flex items-center justify-between gap-2">
           <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-300">Parent &rarr; Child ADK Topology</h2>
           <span id="incident-badge" class="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400">IDLE</span>
         </div>
@@ -176,21 +210,21 @@
                 <div class="font-semibold text-slate-200">1a. TelemetrySignalAgent <span class="text-[10px] text-sky-400">[Parallel]</span></div>
                 <div class="text-slate-500 text-[11px]">Gemini Flash &bull; Golden Signals</div>
               </div>
-               <span id="node-TelemetrySignalAgent-tokens" class="text-slate-500 text-[11px]">0 tok</span>
+              <span id="node-TelemetrySignalAgent-tokens" class="text-slate-500 text-[11px]">0 tok</span>
               <span id="node-TelemetrySignalAgent" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">QUEUED</span>
             </div>
 
             <div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
-              <div  class="w-48">
+              <div class="w-48">
                 <div class="font-semibold text-slate-200">1b. LogForensicsAgent <span class="text-[10px] text-sky-400">[Parallel]</span></div>
-                <div class="text-slate-500 text-[11px]">Gemini Flash &bull; Structured Logs</div>
+                <div class="text-slate-500 text-[11px]">Gemini Flash &bull; Aggregated Logs</div>
               </div>
               <span id="node-LogForensicsAgent-tokens" class="text-slate-500 text-[11px]">0 tok</span>
               <span id="node-LogForensicsAgent" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">QUEUED</span>
             </div>
 
             <div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
-              <div  class="w-48">
+              <div class="w-48">
                 <div class="font-semibold text-slate-200">2a. RootCauseArchitect <span class="text-[10px] text-amber-400">[Loop]</span></div>
                 <div class="text-slate-500 text-[11px]">Gemini Pro &bull; Shadow Patch + .bak</div>
               </div>
@@ -199,16 +233,16 @@
             </div>
 
             <div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
-              <div  class="w-48">
+              <div class="w-48">
                 <div class="font-semibold text-slate-200">2b. GuardrailVerifier <span class="text-[10px] text-amber-400">[Gate]</span></div>
-                <div class="text-slate-500 text-[11px]">15-Wire Concurrency Smoke Test</div>
+                <div class="text-slate-500 text-[11px]">4-Invariant Sandbox Gate (15-Wire)</div>
               </div>
               <span id="node-GuardrailVerifier-tokens" class="text-slate-500 text-[11px]">0 tok</span>
               <span id="node-GuardrailVerifier" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">QUEUED</span>
             </div>
 
             <div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
-              <div  class="w-48">
+              <div class="w-48">
                 <div class="font-semibold text-slate-200">3. PostMortemWriter</div>
                 <div class="text-slate-500 text-[11px]">Blameless RCA + Git Artifact Export</div>
               </div>
@@ -216,9 +250,16 @@
               <span id="node-PostMortemWriter" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">QUEUED</span>
             </div>
           </div>
-          <div>
-            <span>Total tokens usage:</span>
-            <span id="node-token-count">0</span>
+
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/70">
+            <div class="flex items-center gap-2">
+              <span class="text-slate-300">Total tokens usage:</span>
+              <span id="node-token-count" class="font-mono font-semibold text-white">0</span>
+              <span class="text-slate-600">|</span>
+              <span class="text-slate-300">Est. Cost:</span>
+              <span id="node-cost-usd" class="font-mono font-semibold text-emerald-400">$0.0000</span>
+            </div>
+            <span id="pattern-badge" class="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400">PATTERN: IDLE</span>
           </div>
         </div>
       </div>
@@ -230,7 +271,7 @@
           <span class="text-[11px] text-emerald-400 font-mono">SSE LIVE</span>
         </div>
         <div id="agent-feed" class="bg-slate-950 border border-slate-800 rounded-xl p-4 h-80 overflow-y-auto space-y-3 font-mono text-xs">
-          <div class="text-slate-500">Waiting for SLO alert or chaos surge trigger...</div>
+          <div class="text-slate-500">Select an isolated fault scenario above and click "Inject Selected Fault"...</div>
         </div>
       </div>
     </div>
@@ -253,8 +294,20 @@
     const isAdmin = window.location.pathname.startsWith('/admin');
     document.getElementById(isAdmin ? 'admin-view' : 'customer-view').classList.remove('hidden');
     document.getElementById(isAdmin ? 'nav-admin' : 'nav-customer').classList.add('bg-indigo-600', 'text-white');
+    if (isAdmin) {
+      const pill = document.getElementById('session-cost-pill');
+      pill.classList.remove('hidden');
+      pill.classList.add('flex');
+    }
 
     let lastIdempotencyKey = null;
+    let scenarioCatalog = {
+      connection_pool_leak: 'Cold NOVEL_FAULT (~3.5-5k tok) -> Repeat EXACT_REUSE (0 tok · $0.0000)',
+      missing_idempotency_guard: 'Proves distinct fault class (NOVEL_FAULT, zero cross-cache pollution)',
+      latency_regression_spike: 'Proves latency-only SLO remediation & sandbox p95 <= 250ms gate',
+      upstream_retry_storm: 'Proves storm containment & server overload recovery',
+      connection_pool_leak_sanctions_variant: 'Hits DELTA_SCAFFOLD (~60% pattern reuse + ~40% AI delta) after Scenario 1'
+    };
 
     // --- CUSTOMER PORTAL LOGIC ---
     async function submitCustomerWire(isReplay = false) {
@@ -340,6 +393,37 @@
     }
 
     // --- ADMIN SRE CONSOLE LOGIC ---
+    function formatUsd(val) {
+      const n = Number(val) || 0;
+      return '$' + n.toFixed(4);
+    }
+
+    function updateIncidentCost(costRoi) {
+      const el = document.getElementById('node-cost-usd');
+      if (!el || !costRoi) return;
+      el.innerText = formatUsd(costRoi.estimated_cost_usd);
+    }
+
+    function updateSessionCost(sc) {
+      if (!sc) return;
+      const usdEl = document.getElementById('session-cost-usd');
+      const metaEl = document.getElementById('session-cost-meta');
+      if (usdEl) usdEl.innerText = formatUsd(sc.total_cost_usd);
+      if (metaEl) {
+        const fixes = Number(sc.incidents_fixed) || 0;
+        const fixLabel = fixes === 1 ? '1 fix' : `${fixes} fixes`;
+        metaEl.innerText = `${fixLabel} • ${formatTokens(sc.total_tokens)} tok`;
+      }
+    }
+
+    function updateScenarioHint() {
+      const sel = document.getElementById('scenario-select');
+      const hintEl = document.getElementById('scenario-hint');
+      if (sel && hintEl) {
+        hintEl.innerText = scenarioCatalog[sel.value] || '';
+      }
+    }
+
     function updateKPIs(m) {
       document.getElementById('kpi-latency').innerText = `${m.p95_latency_ms} ms`;
       document.getElementById('kpi-latency').className = `text-2xl font-mono font-bold mt-1 ${m.p95_latency_ms > 250 ? 'text-rose-400' : 'text-emerald-400'}`;
@@ -351,11 +435,33 @@
       document.getElementById('kpi-saturation').className = `text-2xl font-mono font-bold mt-1 ${m.pool_saturation_pct >= 90 ? 'text-rose-400' : 'text-emerald-400'}`;
     }
 
+    function updatePatternBadge(pm) {
+      const badge = document.getElementById('pattern-badge');
+      if (!badge) return;
+      if (!pm || !pm.match_mode) {
+        badge.innerText = 'PATTERN: IDLE';
+        badge.className = 'text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400';
+        return;
+      }
+      const mode = pm.match_mode;
+      const pct = pm.similarity_pct ?? 0;
+      if (mode === 'EXACT_REUSE') {
+        badge.innerText = `EXACT_REUSE (${pct}% · $0.0000)`;
+        badge.className = 'text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300';
+      } else if (mode === 'DELTA_SCAFFOLD') {
+        badge.innerText = `60/40 DELTA (${pct}%)`;
+        badge.className = 'text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300';
+      } else {
+        badge.innerText = `NOVEL_FAULT (Cold)`;
+        badge.className = 'text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300';
+      }
+    }
+
     const tokenManager = (() => {
       let tokenCounts = {};
       return {
-        updateTokens: (agentName,count) => {
-          tokenCounts[agentName] = count;
+        updateTokens: (agentName, count) => {
+          tokenCounts[agentName] = Number(count) || 0;
         },
         getTotalTokens: () => {
           return Object.values(tokenCounts).reduce((sum, count) => sum + count, 0);
@@ -363,21 +469,23 @@
         reset: () => {
           tokenCounts = {};
         }
-      }
+      };
     })();
 
-    const tokenFormatter = new Intl.NumberFormat('en-Us', {
-      notation:'compact',
+    const tokenFormatter = new Intl.NumberFormat('en-US', {
+      notation: 'compact',
       maximumFractionDigits: 1
-    })
+    });
 
     function formatTokens(tokens) {
-      return tokenFormatter.format(tokens).toLowerCase();
+      return tokenFormatter.format(Number(tokens) || 0).toLowerCase();
     }
 
     function appendFeed(title, body, colorClass = 'text-indigo-300') {
       const feed = document.getElementById('agent-feed');
-      if (feed.children.length === 1 && feed.children[0].innerText.startsWith('Waiting')) feed.innerHTML = '';
+      if (feed.children.length === 1 && (feed.children[0].innerText.startsWith('Select') || feed.children[0].innerText.startsWith('Waiting') || feed.children[0].innerText.startsWith('Demo reset') || feed.children[0].innerText.startsWith('Injected'))) {
+        feed.innerHTML = '';
+      }
       const card = document.createElement('div');
       card.className = 'p-3 rounded-lg bg-slate-900 border border-slate-800';
       card.innerHTML = `<div class="font-bold ${colorClass}">${title}</div><div class="text-slate-300 mt-1 whitespace-pre-wrap">${body}</div>`;
@@ -401,9 +509,27 @@
       const agentTokensEl = document.getElementById('node-' + agentName + '-tokens');
       const totalTokensEl = document.getElementById('node-token-count');
       if (!agentTokensEl) return;
-      tokenManager.updateTokens(agentName, tokens);
-      agentTokensEl.innerText = formatTokens(tokens) + ' tok';
+      const safeTokens = Number(tokens) || 0;
+      tokenManager.updateTokens(agentName, safeTokens);
+      agentTokensEl.innerText = formatTokens(safeTokens) + ' tok';
       totalTokensEl.innerText = formatTokens(tokenManager.getTotalTokens());
+    }
+
+    function resetAdminUI(statusMessage) {
+      document.getElementById('btn-approve').classList.add('hidden');
+      document.getElementById('agent-feed').innerHTML = `<div class="text-slate-500">${statusMessage}</div>`;
+      document.getElementById('diff-viewer').innerText = 'No patch staged yet.';
+      document.getElementById('rca-viewer').innerText = 'Post-mortem report will appear here automatically once recovery completes.';
+      document.getElementById('incident-badge').innerText = 'IDLE';
+      document.getElementById('incident-badge').className = 'text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400';
+      updatePatternBadge(null);
+      updateIncidentCost({ estimated_cost_usd: 0 });
+      tokenManager.reset();
+      setNodeStatus('SRE_Commander', 'READY');
+      ['TelemetrySignalAgent','LogForensicsAgent','RootCauseArchitect','GuardrailVerifier','PostMortemWriter'].forEach(n => {
+        setNodeStatus(n, 'QUEUED');
+        setNodeTokens(n, 0);
+      });
     }
 
     if (isAdmin) {
@@ -412,9 +538,30 @@
         if (st.watcher?.operational_mode) {
           document.getElementById('mode-select').value = st.watcher.operational_mode;
         }
+        if (st.watcher?.cost_and_roi) {
+          updateIncidentCost(st.watcher.cost_and_roi);
+          if (st.watcher.cost_and_roi.per_agent_tokens) {
+            Object.entries(st.watcher.cost_and_roi.per_agent_tokens).forEach(([name, usage]) => {
+              setNodeTokens(name, usage.total_tokens);
+            });
+          }
+        }
+        if (st.watcher?.session_cost) {
+          updateSessionCost(st.watcher.session_cost);
+        }
+        if (Array.isArray(st.watcher?.scenarios) && st.watcher.scenarios.length) {
+          const sel = document.getElementById('scenario-select');
+          sel.innerHTML = st.watcher.scenarios.map(s => `<option value="${s.id}">${s.title}</option>`).join('');
+          scenarioCatalog = {};
+          st.watcher.scenarios.forEach(s => { scenarioCatalog[s.id] = s.demo_role; });
+          updateScenarioHint();
+        }
         const latest = st.watcher?.latest_state || {};
         if (latest.incident_hash) {
           document.getElementById('incident-badge').innerText = latest.incident_hash;
+        }
+        if (latest.pattern_memory) {
+          updatePatternBadge(latest.pattern_memory);
         }
         if (latest.patch_diff) {
           document.getElementById('diff-viewer').innerText = latest.patch_diff;
@@ -433,9 +580,28 @@
       evtSource.onmessage = (e) => {
         const msg = JSON.parse(e.data);
         if (msg.type === 'metrics_tick') updateKPIs(msg.data);
+        if (msg.type === 'demo_reset') {
+          resetAdminUI(msg.data.message || 'Demo reset to baseline. Ready for next run.');
+          if (msg.data.session_cost) updateSessionCost(msg.data.session_cost);
+        }
+        if (msg.type === 'session_cost_update') {
+          updateSessionCost(msg.data);
+        }
+        if (msg.type === 'cost_roi_update') {
+          updateIncidentCost(msg.data);
+          if (msg.data?.per_agent_tokens) {
+            Object.entries(msg.data.per_agent_tokens).forEach(([name, usage]) => {
+              setNodeTokens(name, usage.total_tokens);
+            });
+          }
+          if (msg.data?.session_cost) updateSessionCost(msg.data.session_cost);
+        }
         if (msg.type === 'incident_detected') {
           document.getElementById('incident-badge').innerText = msg.data.incident_hash;
           document.getElementById('incident-badge').className = 'text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300';
+          updatePatternBadge(msg.data.pattern_memory);
+          if (msg.data.cost_and_roi) updateIncidentCost(msg.data.cost_and_roi);
+          if (msg.data.session_cost) updateSessionCost(msg.data.session_cost);
           setNodeStatus('SRE_Commander', 'STARTED');
           appendFeed('ALERT -> SRE_Commander', msg.data.message, 'text-rose-400');
         }
@@ -443,12 +609,16 @@
           const d = msg.data;
           setNodeStatus(d.child_agent, d.status);
           setNodeTokens(d.child_agent, d.total_tokens);
+          if (d.cost_and_roi) updateIncidentCost(d.cost_and_roi);
+          if (d.session_cost) updateSessionCost(d.session_cost);
           appendFeed(`${d.parent_agent} -> ${d.child_agent} [${d.status}]`, d.summary, 'text-sky-300');
           if (d.state_payload?.patch_diff) document.getElementById('diff-viewer').innerText = d.state_payload.patch_diff;
           if (d.state_payload?.postmortem_markdown) document.getElementById('rca-viewer').innerText = d.state_payload.postmortem_markdown;
           if (d.status === 'WAITING_APPROVAL') document.getElementById('btn-approve').classList.remove('hidden');
         }
         if (msg.type === 'agent_message') {
+          if (msg.data.cost_and_roi) updateIncidentCost(msg.data.cost_and_roi);
+          if (msg.data.session_cost) updateSessionCost(msg.data.session_cost);
           appendFeed(`Agent Output (${msg.data.author})`, msg.data.text, 'text-emerald-300');
         }
         if (msg.type === 'approval_required') {
@@ -456,6 +626,8 @@
           setNodeStatus('GuardrailVerifier', 'WAITING_APPROVAL');
           document.getElementById('incident-badge').className = 'text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300';
           document.getElementById('btn-approve').classList.remove('hidden');
+          if (msg.data.cost_and_roi) updateIncidentCost(msg.data.cost_and_roi);
+          if (msg.data.session_cost) updateSessionCost(msg.data.session_cost);
           if (msg.data.state?.patch_diff) document.getElementById('diff-viewer').innerText = msg.data.state.patch_diff;
           if (msg.data.state?.postmortem_markdown) document.getElementById('rca-viewer').innerText = msg.data.state.postmortem_markdown;
           appendFeed('HUMAN APPROVAL GATE', msg.data.message, 'text-amber-400');
@@ -465,19 +637,48 @@
           setNodeStatus('GuardrailVerifier', 'COMPLETED');
           document.getElementById('incident-badge').className = 'text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300';
           document.getElementById('btn-approve').classList.add('hidden');
+          if (msg.data.cost_and_roi) updateIncidentCost(msg.data.cost_and_roi);
+          if (msg.data.session_cost) updateSessionCost(msg.data.session_cost);
           if (msg.data.state?.patch_diff) document.getElementById('diff-viewer').innerText = msg.data.state.patch_diff;
           if (msg.data.state?.postmortem_markdown) document.getElementById('rca-viewer').innerText = msg.data.state.postmortem_markdown;
         }
       };
     }
 
-    async function triggerChaosSurge() {
+    async function injectSelectedScenario() {
       const btn = document.getElementById('btn-chaos');
+      const scenarioId = document.getElementById('scenario-select').value;
       btn.disabled = true;
-      btn.innerText = 'Dispatching 12 Concurrent Wires...';
-      await fetch('/api/chaos/surge', { method: 'POST' });
-      btn.disabled = false;
-      btn.innerText = 'Simulate Settlement Surge (Chaos)';
+      btn.innerText = 'Injecting Fault...';
+      try {
+        const res = await fetch('/api/chaos/inject', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scenario_id: scenarioId })
+        });
+        const data = await res.json();
+        if (data.status === 'busy') {
+          appendFeed('CONTROL PLANE', data.detail, 'text-amber-400');
+        }
+      } finally {
+        btn.disabled = false;
+        btn.innerText = 'Inject Selected Fault';
+      }
+    }
+
+    async function clearPatternMemory() {
+      const btn = document.getElementById('btn-clear-patterns');
+      btn.disabled = true;
+      btn.innerText = 'Clearing...';
+      try {
+        const res = await fetch('/api/admin/clear-patterns', { method: 'POST' });
+        const data = await res.json();
+        updatePatternBadge(null);
+        if (data.session_cost) updateSessionCost(data.session_cost);
+      } finally {
+        btn.disabled = false;
+        btn.innerText = 'Clear Pattern Memory';
+      }
     }
 
     async function changeMode(mode) {
@@ -495,16 +696,7 @@
 
     async function resetDemo() {
       await fetch('/api/admin/reset', { method: 'POST' });
-      document.getElementById('btn-approve').classList.add('hidden');
-      document.getElementById('agent-feed').innerHTML = '<div class="text-slate-500">Demo reset to baseline. Ready for next run.</div>';
-      document.getElementById('diff-viewer').innerText = 'No patch staged yet.';
-      document.getElementById('rca-viewer').innerText = 'Post-mortem report will appear here automatically once recovery completes.';
-      document.getElementById('incident-badge').innerText = 'IDLE';
-      ['SRE_Commander','TelemetrySignalAgent','LogForensicsAgent','RootCauseArchitect','GuardrailVerifier','PostMortemWriter'].forEach(n => {
-        setNodeStatus(n, 'QUEUED');
-        setNodeTokens(n, 0);
-      })
-      tokenManager.reset();
+      resetAdminUI('Demo reset to baseline. Ready for next run.');
     }
   </script>
 </body>

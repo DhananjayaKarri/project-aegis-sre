@@ -1,34 +1,146 @@
 {
-  "suite": "project-aegis-sre-mission-2026-evals",
+  "suite": "project-aegis-sre-5-scenario-chaos-evals",
   "overall_passed": true,
-  "total_scenarios": 2,
-  "passed_scenarios": 2,
+  "total_runs": 6,
+  "passed_runs": 6,
   "results": [
     {
       "scenario": "connection_pool_leak",
+      "expected_pattern_mode": "NOVEL_FAULT",
+      "actual_pattern_mode": "NOVEL_FAULT",
+      "similarity_pct": 0.0,
+      "estimated_tokens_saved": 0,
       "passed": true,
-      "duration_seconds": 0.581,
+      "duration_seconds": 0.689,
       "checks": {
-        "initial_5_settled_2_503": true,
-        "slo_breach_detected": true,
+        "breach_detected": true,
+        "pattern_mode_matched": true,
         "shadow_diff_generated": true,
-        "sandbox_15_wire_gate_passed": true,
-        "idempotency_zero_double_charge": true,
-        "pool_recovered_healthy": true
+        "four_invariant_sandbox_passed": true,
+        "post_deploy_canary_healthy": true,
+        "post_recovery_zero_leaks": true
       },
-      "verification_detail": "VERIFICATION_PASSED_AND_PROMOTED: Shadow patch passed 15/15 isolated compliance wires, atomic swap completed, live module hot-reloaded, and connection pool recovered to 0.0% (0/5)."
+      "injection_summary": {
+        "settled": 5,
+        "failed": 2
+      },
+      "verification_detail": "VERIFICATION_PASSED_AND_PROMOTED: Shadow patch passed all 4 sandbox invariants (15/15 wires, 0 leaks, p95 <= 250ms, $0.00 duplicate charges), atomic swap & hot-reload complete.",
+      "canary_detail": "CANARY_VERIFIED_HEALTHY: Live probe settled cleanly (0 leaked connections, p95=67.3ms) and pattern 'connection_pool_leak:settlement_handler.py' saved to memory."
+    },
+    {
+      "scenario": "connection_pool_leak",
+      "expected_pattern_mode": "EXACT_REUSE",
+      "actual_pattern_mode": "EXACT_REUSE",
+      "similarity_pct": 95.0,
+      "estimated_tokens_saved": 8000,
+      "passed": true,
+      "duration_seconds": 0.667,
+      "checks": {
+        "breach_detected": true,
+        "pattern_mode_matched": true,
+        "shadow_diff_generated": true,
+        "four_invariant_sandbox_passed": true,
+        "post_deploy_canary_healthy": true,
+        "post_recovery_zero_leaks": true
+      },
+      "injection_summary": {
+        "settled": 5,
+        "failed": 2
+      },
+      "verification_detail": "VERIFICATION_PASSED_AND_PROMOTED: Shadow patch passed all 4 sandbox invariants (15/15 wires, 0 leaks, p95 <= 250ms, $0.00 duplicate charges), atomic swap & hot-reload complete.",
+      "canary_detail": "CANARY_VERIFIED_HEALTHY: Live probe settled cleanly (0 leaked connections, p95=61.11ms) and pattern 'connection_pool_leak:settlement_handler.py' saved to memory."
+    },
+    {
+      "scenario": "connection_pool_leak_sanctions_variant",
+      "expected_pattern_mode": "DELTA_SCAFFOLD",
+      "actual_pattern_mode": "DELTA_SCAFFOLD",
+      "similarity_pct": 60.5,
+      "estimated_tokens_saved": 5000,
+      "passed": true,
+      "duration_seconds": 0.62,
+      "checks": {
+        "breach_detected": true,
+        "pattern_mode_matched": true,
+        "shadow_diff_generated": true,
+        "four_invariant_sandbox_passed": true,
+        "post_deploy_canary_healthy": true,
+        "post_recovery_zero_leaks": true
+      },
+      "injection_summary": {
+        "settled": 5,
+        "failed": 2
+      },
+      "verification_detail": "VERIFICATION_PASSED_AND_PROMOTED: Shadow patch passed all 4 sandbox invariants (15/15 wires, 0 leaks, p95 <= 250ms, $0.00 duplicate charges), atomic swap & hot-reload complete.",
+      "canary_detail": "CANARY_VERIFIED_HEALTHY: Live probe settled cleanly (0 leaked connections, p95=60.63ms) and pattern 'connection_pool_leak_sanctions_variant:settlement_handler.py' saved to memory."
+    },
+    {
+      "scenario": "missing_idempotency_guard",
+      "expected_pattern_mode": "NOVEL_FAULT",
+      "actual_pattern_mode": "NOVEL_FAULT",
+      "similarity_pct": 10.6,
+      "estimated_tokens_saved": 0,
+      "passed": true,
+      "duration_seconds": 0.433,
+      "checks": {
+        "breach_detected": true,
+        "pattern_mode_matched": true,
+        "shadow_diff_generated": true,
+        "four_invariant_sandbox_passed": true,
+        "post_deploy_canary_healthy": true,
+        "post_recovery_zero_leaks": true
+      },
+      "injection_summary": {
+        "settled": 2,
+        "failed": 3
+      },
+      "verification_detail": "VERIFICATION_PASSED_AND_PROMOTED: Shadow patch passed all 4 sandbox invariants (15/15 wires, 0 leaks, p95 <= 250ms, $0.00 duplicate charges), atomic swap & hot-reload complete.",
+      "canary_detail": "CANARY_VERIFIED_HEALTHY: Live probe settled cleanly (0 leaked connections, p95=63.44ms) and pattern 'missing_idempotency_guard:settlement_handler.py' saved to memory."
+    },
+    {
+      "scenario": "latency_regression_spike",
+      "expected_pattern_mode": "NOVEL_FAULT",
+      "actual_pattern_mode": "NOVEL_FAULT",
+      "similarity_pct": 13.3,
+      "estimated_tokens_saved": 0,
+      "passed": true,
+      "duration_seconds": 1.865,
+      "checks": {
+        "breach_detected": true,
+        "pattern_mode_matched": true,
+        "shadow_diff_generated": true,
+        "four_invariant_sandbox_passed": true,
+        "post_deploy_canary_healthy": true,
+        "post_recovery_zero_leaks": true
+      },
+      "injection_summary": {
+        "settled": 4,
+        "failed": 0
+      },
+      "verification_detail": "VERIFICATION_PASSED_AND_PROMOTED: Shadow patch passed all 4 sandbox invariants (15/15 wires, 0 leaks, p95 <= 250ms, $0.00 duplicate charges), atomic swap & hot-reload complete.",
+      "canary_detail": "CANARY_VERIFIED_HEALTHY: Live probe settled cleanly (0 leaked connections, p95=64.07ms) and pattern 'latency_regression_spike:settlement_handler.py' saved to memory."
     },
     {
       "scenario": "upstream_retry_storm",
+      "expected_pattern_mode": "NOVEL_FAULT",
+      "actual_pattern_mode": "NOVEL_FAULT",
+      "similarity_pct": 13.2,
+      "estimated_tokens_saved": 0,
       "passed": true,
-      "duration_seconds": 0.215,
+      "duration_seconds": 0.348,
       "checks": {
-        "storm_slo_degradation_detected": true,
+        "breach_detected": true,
+        "pattern_mode_matched": true,
         "shadow_diff_generated": true,
-        "sandbox_15_wire_gate_passed": true,
-        "post_recovery_pool_zero_leaks": true
+        "four_invariant_sandbox_passed": true,
+        "post_deploy_canary_healthy": true,
+        "post_recovery_zero_leaks": true
       },
-      "verification_detail": "VERIFICATION_PASSED_AND_PROMOTED: Shadow patch passed 15/15 isolated compliance wires, atomic swap completed, live module hot-reloaded, and connection pool recovered to 0.0% (0/5)."
+      "injection_summary": {
+        "settled": 0,
+        "failed": 5
+      },
+      "verification_detail": "VERIFICATION_PASSED_AND_PROMOTED: Shadow patch passed all 4 sandbox invariants (15/15 wires, 0 leaks, p95 <= 250ms, $0.00 duplicate charges), atomic swap & hot-reload complete.",
+      "canary_detail": "CANARY_VERIFIED_HEALTHY: Live probe settled cleanly (0 leaked connections, p95=72.79ms) and pattern 'upstream_retry_storm:settlement_handler.py' saved to memory."
     }
   ]
 }
