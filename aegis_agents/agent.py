@@ -5,9 +5,6 @@ from dotenv import load_dotenv
 from google.adk.agents import Agent, LoopAgent, ParallelAgent, SequentialAgent
 from aegis_agents.callbacks import on_child_agent_end, on_child_agent_start
 from aegis_agents.tools import (
-    fetch_golden_signals,
-    inspect_service_logs,
-    read_target_source_code,
     stage_shadow_patch,
     verify_and_promote_patch,
 )
@@ -15,16 +12,33 @@ from domain.schemas import AgentTier
 
 load_dotenv()
 
+DEPRECATED_MODELS = {
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "models/gemini-2.5-flash",
+    "models/gemini-2.5-flash-lite",
+}
+
+
+def _clean_env_model(env_key: str | None) -> str | None:
+    if not env_key:
+        return None
+    val = (os.getenv(env_key) or "").strip()
+    if not val or val in DEPRECATED_MODELS:
+        return None
+    return val
+
 
 def get_model_failover_chain(preferred_env: str | None = None) -> List[str]:
     """Ordered list of active Google AI Studio models to try before engaging fallback."""
     chain: List[str] = []
-    if preferred_env and os.getenv(preferred_env):
-        chain.append(os.environ[preferred_env].strip())
+    pref = _clean_env_model(preferred_env)
+    if pref:
+        chain.append(pref)
     for env_key in ("AEGIS_MODEL", "AEGIS_FAST_MODEL"):
-        val = os.getenv(env_key)
-        if val and val.strip() not in chain:
-            chain.append(val.strip())
+        val = _clean_env_model(env_key)
+        if val and val not in chain:
+            chain.append(val)
     for candidate in (
         "gemini-3.6-flash",
         "gemini-3.5-flash-lite",
@@ -53,56 +67,62 @@ def get_agent_tier(agent_name: str) -> AgentTier:
     return AGENT_TIER_MAP.get(agent_name, AgentTier.LITE)
 
 
-def resolve_model_for_agent(agent_name: str, fallback_model: str | None = None) -> str:
-    """Routes Lite agents to a fast/compact model tier and Reasoning agents to the reasoning tier."""
+def resolve_model_for_agent(
+    agent_name: str,
+    fallback_model: str | None = None,
+    force_model: bool = False,
+) -> str:
+    """Routes Lite vs. Reasoning tiers while honoring explicit failover overrides."""
+    if force_model and fallback_model and fallback_model not in DEPRECATED_MODELS:
+        return fallback_model
     tier = get_agent_tier(agent_name)
     if tier == AgentTier.REASONING:
-        if os.getenv("AEGIS_REASONING_MODEL"):
-            return os.environ["AEGIS_REASONING_MODEL"].strip()
+        env_reasoning = _clean_env_model("AEGIS_REASONING_MODEL")
+        if env_reasoning:
+            return env_reasoning
         return fallback_model or REASONING_MODEL_CHAIN[0]
-    if os.getenv("AEGIS_LITE_MODEL"):
-        return os.environ["AEGIS_LITE_MODEL"].strip()
+    env_lite = _clean_env_model("AEGIS_LITE_MODEL")
+    if env_lite:
+        return env_lite
     return fallback_model or LITE_MODEL_CHAIN[0]
 
 
-def build_sre_commander(model_name: str) -> SequentialAgent:
+def build_sre_commander(model_name: str, is_failover: bool = False) -> SequentialAgent:
     """
-    Builds a Google ADK Sequential -> Parallel -> Loop multi-agent topology using
-    Lite Agents for fast/low-token steps and Reasoning Agents for code patch & RCA synthesis.
+    Builds a low-token Google ADK Sequential -> Parallel -> Loop multi-agent topology.
+    Pre-fetched telemetry, aggregated logs, and target source are injected via session.state
+    to eliminate 3 redundant tool-calling roundtrips per incident.
     """
-    lite_model = resolve_model_for_agent("TelemetrySignalAgent", model_name)
-    reasoning_model = resolve_model_for_agent("RootCauseArchitect", model_name)
+    lite_model = resolve_model_for_agent("TelemetrySignalAgent", model_name, force_model=is_failover)
+    reasoning_model = resolve_model_for_agent("RootCauseArchitect", model_name, force_model=is_failover)
 
-    # --- LITE STAGE 1A: GOLDEN SIGNALS SNAPSHOT (Compact prompt, minimal tokens) ---
+    # --- LITE STAGE 1A: GOLDEN SIGNALS SNAPSHOT (1 API call, no redundant tool turn) ---
     telemetry_signal_agent = Agent(
         name="TelemetrySignalAgent",
         model=lite_model,
-        description="Lite agent: fetches and summarizes Golden Signals SLO breaches concisely.",
-       instruction=(
-            "Call fetch_golden_signals(). "
-            "Report only metrics returned by the tool. "
-            "Output up to 3 short bullets covering breached signals, "
-            "pool saturation %, and error rate. "
-            "Do not analyze root causes, propose fixes, "
-            "generate code, or report remediation outcomes. "
-            "Do not invent or estimate missing values."
+        include_contents="none",
+        description="Lite agent: summarizes pre-fetched Golden Signals SLO breaches concisely.",
+        instruction=(
+            "Fault={fault_signature?} | Signals={golden_signals_json?}\n"
+            "Output <=2 short bullets citing only breached Golden Signals (saturation %, p95 latency ms, error rate %). "
+            "No root cause or fix suggestions."
         ),
-        tools=[fetch_golden_signals],
         output_key="telemetry_summary",
         before_agent_callback=on_child_agent_start,
         after_agent_callback=on_child_agent_end,
     )
 
-    # --- LITE STAGE 1B: LOG FORENSICS EXTRACTOR (Compact prompt, minimal tokens) ---
+    # --- LITE STAGE 1B: LOG FORENSICS EXTRACTOR (1 API call, fault-agnostic) ---
     log_forensics_agent = Agent(
         name="LogForensicsAgent",
         model=lite_model,
-        description="Lite agent: extracts root error event and failing code path from logs.",
+        include_contents="none",
+        description="Lite agent: extracts root error event and failing code path from aggregated logs.",
         instruction=(
-            "Call inspect_service_logs(). Output <=3 short bullets identifying the 503 trigger "
-            "and leaked connection root cause."
+            "Fault={fault_signature?} | AggregatedLogs={aggregated_logs?}\n"
+            "Output <=2 short bullets identifying the exact failing event and defect class from the logs "
+            "(e.g., leaked connection on early return, missing idempotency guard, blocking latency sleep, or retry storm)."
         ),
-        tools=[inspect_service_logs],
         output_key="log_forensics",
         before_agent_callback=on_child_agent_start,
         after_agent_callback=on_child_agent_end,
@@ -114,34 +134,42 @@ def build_sre_commander(model_name: str) -> SequentialAgent:
         sub_agents=[telemetry_signal_agent, log_forensics_agent],
     )
 
-    # --- REASONING STAGE 2A: ROOT CAUSE & SHADOW PATCH ARCHITECT ---
+    # --- REASONING STAGE 2A: ROOT CAUSE & SHADOW PATCH ARCHITECT (Fault-Agnostic, 4 Invariants) ---
     root_cause_architect = Agent(
         name="RootCauseArchitect",
         model=reasoning_model,
         include_contents="none",
-        description="Reasoning agent: diagnoses code bug and stages a safe try...finally shadow patch.",
+        description="Reasoning agent: fixes any NexusPay fault class and stages a 4-invariant shadow patch.",
         instruction=(
-            "You are a Principal SRE & Python Architect.\n"
-            "Context: Telemetry={telemetry_summary?} | Logs={log_forensics?} | RetryFeedback={verification_status?}\n"
-            "1. Call read_target_source_code() for 'nexuspay_service/settlement_handler.py'.\n"
-            "2. Wrap connection usage in try...finally so infra.release_connection() always runs on early return.\n"
-            "3. Keep function signatures, idempotency checks, and infra.deduct_liquidity(req.amount_usd) intact.\n"
-            "4. Call stage_shadow_patch() with complete raw Python code (no markdown fences)."
+            "You are a Principal SRE & Python Architect fixing 'nexuspay_service/settlement_handler.py'.\n"
+            "Fault={fault_signature?}\n"
+            "Telemetry={telemetry_summary?}\n"
+            "Logs={log_forensics?}\n"
+            "RetryFeedback={verification_status?}\n"
+            "CurrentSource:\n{target_source_code?}\n\n"
+            "Fix the exact defect and enforce ALL 4 invariants on the FIRST attempt:\n"
+            "1. Connection Safety: wrap DB usage in try...finally calling infra.release_connection() on all return paths.\n"
+            "2. Idempotency Guard: BEFORE infra.acquire_connection(), check existing = infra.get_idempotent_receipt(idempotency_key); "
+            "if existing is not None, return existing.model_copy(update=dict(status='IDEMPOTENT_REPLAY')).\n"
+            "3. Latency & Storm Safety: keep execution fast (<= 0.06s sleep max; remove any blocking sleep > 0.1s or unbounded retry loops).\n"
+            "4. Liquidity & Signatures: preserve execute_settlement(req, idempotency_key), infra.deduct_liquidity(req.amount_usd), "
+            "infra.record_transaction(...), and infra.save_idempotent_receipt(idempotency_key, receipt).\n"
+            "Call stage_shadow_patch() ONCE with complete raw Python code (no markdown fences), then reply with 1 short line."
         ),
-        tools=[read_target_source_code, stage_shadow_patch],
+        tools=[stage_shadow_patch],
         output_key="architect_notes",
         before_agent_callback=on_child_agent_start,
         after_agent_callback=on_child_agent_end,
     )
 
-    # --- LITE STAGE 2B: GUARDRAIL SANDBOX VERIFIER (Compact prompt, deterministic tool gate) ---
+    # --- LITE STAGE 2B: GUARDRAIL SANDBOX VERIFIER ---
     guardrail_verifier = Agent(
         name="GuardrailVerifier",
-        model=resolve_model_for_agent("GuardrailVerifier", lite_model),
+        model=resolve_model_for_agent("GuardrailVerifier", lite_model, force_model=is_failover),
         include_contents="none",
-        description="Lite gate agent: runs 15-wire sandbox verification and reports status concisely.",
+        description="Lite gate agent: runs 4-invariant sandbox verification and reports status concisely.",
         instruction=(
-            "Call verify_and_promote_patch(). Return a concise 1-2 line verification summary."
+            "Call verify_and_promote_patch() once and return its exact 1-line outcome."
         ),
         tools=[verify_and_promote_patch],
         output_key="verification_status",
@@ -151,7 +179,7 @@ def build_sre_commander(model_name: str) -> SequentialAgent:
 
     healing_loop = LoopAgent(
         name="GuardrailHealingLoop",
-        description="Iteratively stages and verifies patches behind the sandbox guardrail.",
+        description="Iteratively stages and verifies patches behind the 4-invariant sandbox guardrail.",
         sub_agents=[root_cause_architect, guardrail_verifier],
         max_iterations=2,
     )
@@ -159,18 +187,17 @@ def build_sre_commander(model_name: str) -> SequentialAgent:
     # --- REASONING STAGE 3: BLAMELESS POST-MORTEM WRITER ---
     postmortem_writer = Agent(
         name="PostMortemWriter",
-        model=resolve_model_for_agent("PostMortemWriter", reasoning_model),
+        model=resolve_model_for_agent("PostMortemWriter", reasoning_model, force_model=is_failover),
         include_contents="none",
         description="Reasoning agent: writes executive blameless post-mortem and financial safety summary.",
         instruction=(
-            "Write a concise SRE Blameless Post-Mortem in Markdown from:\n"
-            "Incident={incident_hash?} | Telemetry={telemetry_summary?} | Logs={log_forensics?} | "
-            "Patch={architect_notes?} | Guardrail={verification_status?}\n"
-            "Sections required: ## Executive Summary, ## Root Cause & Causal Chain, "
+            "Write a concise SRE Blameless Post-Mortem in Markdown (under 180 words) from:\n"
+            "Incident={incident_hash?} | Fault={fault_signature?} | Telemetry={telemetry_summary?} | "
+            "Logs={log_forensics?} | Patch={architect_notes?} | Guardrail={verification_status?}\n"
+            "Required sections: ## Executive Summary, ## Root Cause & Causal Chain, "
             "## Guardrail Verification & Financial Safety ($0.00 duplicate charges via X-Idempotency-Key), "
-            "## Preventive Action Items."
-            "\nUse verification_status as the source of truth for deployment status."
-            "\nIf approval is pending, explicitly state that the patch is not yet deployed and the incident is not confirmed resolved."
+            "## Preventive Action Items.\n"
+            "Use Guardrail status as source of truth; if approval is pending, state that deployment awaits human approval."
         ),
         output_key="postmortem_markdown",
         before_agent_callback=on_child_agent_start,

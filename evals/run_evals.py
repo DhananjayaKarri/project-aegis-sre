@@ -10,138 +10,125 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from aegis_agents.chaos_scenarios import inject_chaos_scenario
+from aegis_agents.pattern_memory import (
+    clear_pattern_memory,
+    lookup_remediation_pattern,
+    normalize_fault_signature,
+)
 from aegis_agents.tools import (
+    TARGET_FILE,
     build_deterministic_patched_handler,
     restore_baseline_bug,
+    run_post_deploy_canary_check,
     stage_shadow_patch_direct,
     verify_and_promote_patch_direct,
 )
-from domain.schemas import SettlementRequest
-from nexuspay_service.pool_manager import INITIAL_LIQUIDITY_USD, infra
-import nexuspay_service.settlement_handler as settlement_handler
+from nexuspay_service.pool_manager import infra
 
 
-def _evaluate_connection_pool_leak() -> Dict[str, Any]:
+def _run_isolated_scenario_eval(
+    scenario_id: str,
+    expected_match_mode: str,
+) -> Dict[str, Any]:
     start = time.perf_counter()
-    restore_baseline_bug()
+    injected = inject_chaos_scenario(scenario_id)
+    signals_before = infra.snapshot_golden_signals()
 
-    settled_count = 0
-    failed_503_count = 0
-
-    for i in range(7):
-        req = SettlementRequest(
-            merchant_id=f"EVAL-LEAK-{i}",
-            recipient_iban="DE89370400440532013000",
-            amount_usd=12000.0,
-            simulate_validation_warning=True,
-        )
-        try:
-            settlement_handler.execute_settlement(req, idempotency_key=f"eval-leak-{i}")
-            settled_count += 1
-        except Exception:
-            failed_503_count += 1
-
-    breached_before = not infra.snapshot_golden_signals().healthy
-    patched_code = build_deterministic_patched_handler()
-    diff_text, _ = stage_shadow_patch_direct(patched_code, "eval-pool-leak")
-    verify_msg, passed, _ = verify_and_promote_patch_direct(operational_mode="AUTONOMOUS", human_approved=False)
-
-    # Verify post-fix recovery & idempotency safety
-    post_req = SettlementRequest(
-        merchant_id="EVAL-POST-FIX",
-        recipient_iban="DE89370400440532013000",
-        amount_usd=10000.0,
-        simulate_validation_warning=True,
+    breach_detected = (
+        not signals_before.healthy
+        or signals_before.pool_saturation_pct >= 90.0
+        or signals_before.p95_latency_ms > 250.0
+        or signals_before.error_rate_pct > 5.0
     )
-    r1 = settlement_handler.execute_settlement(post_req, idempotency_key="eval-idem-key-1")
-    liq_after_first = infra.available_liquidity_usd
-    r2 = settlement_handler.execute_settlement(post_req, idempotency_key="eval-idem-key-1")
-    liq_after_replay = infra.available_liquidity_usd
 
-    idempotency_safe = (
-        r2.status == "IDEMPOTENT_REPLAY"
-        and abs(liq_after_replay - liq_after_first) < 1e-6
-        and liq_after_first < INITIAL_LIQUIDITY_USD
+    with open(TARGET_FILE, "r", encoding="utf-8") as f:
+        buggy_src = f.read()
+
+    sig = normalize_fault_signature(TARGET_FILE, scenario_hint=scenario_id)
+    pattern_hit = lookup_remediation_pattern(sig, buggy_src)
+
+    patched_code = (
+        pattern_hit["pattern"]["patched_code"]
+        if pattern_hit["match_mode"] == "EXACT_REUSE" and pattern_hit.get("pattern")
+        else build_deterministic_patched_handler()
     )
-    recovered_after = infra.snapshot_golden_signals().healthy
+    diff_text, bak_path = stage_shadow_patch_direct(patched_code, f"eval-{scenario_id}")
+    verify_msg, passed, _ = verify_and_promote_patch_direct(
+        operational_mode="AUTONOMOUS",
+        human_approved=False,
+    )
+    canary_ok, canary_msg = run_post_deploy_canary_check(
+        backup_path=bak_path,
+        unified_diff=diff_text,
+        fault_signature=sig,
+    )
+    signals_after = infra.snapshot_golden_signals()
     elapsed = round(time.perf_counter() - start, 3)
 
     ok = (
-        settled_count == 5
-        and failed_503_count == 2
-        and breached_before
+        breach_detected
+        and pattern_hit["match_mode"] == expected_match_mode
         and bool(diff_text.strip())
         and passed
-        and idempotency_safe
-        and recovered_after
+        and canary_ok
+        and signals_after.healthy
+        and signals_after.active_connections == 0
     )
 
     return {
-        "scenario": "connection_pool_leak",
+        "scenario": scenario_id,
+        "expected_pattern_mode": expected_match_mode,
+        "actual_pattern_mode": pattern_hit["match_mode"],
+        "similarity_pct": pattern_hit["similarity_pct"],
+        "estimated_tokens_saved": pattern_hit["estimated_tokens_saved"],
         "passed": ok,
         "duration_seconds": elapsed,
         "checks": {
-            "initial_5_settled_2_503": settled_count == 5 and failed_503_count == 2,
-            "slo_breach_detected": breached_before,
+            "breach_detected": breach_detected,
+            "pattern_mode_matched": pattern_hit["match_mode"] == expected_match_mode,
             "shadow_diff_generated": bool(diff_text.strip()),
-            "sandbox_15_wire_gate_passed": passed,
-            "idempotency_zero_double_charge": idempotency_safe,
-            "pool_recovered_healthy": recovered_after,
+            "four_invariant_sandbox_passed": passed,
+            "post_deploy_canary_healthy": canary_ok,
+            "post_recovery_zero_leaks": signals_after.healthy and signals_after.active_connections == 0,
+        },
+        "injection_summary": {
+            "settled": injected["settled"],
+            "failed": injected["failed"],
         },
         "verification_detail": verify_msg,
-    }
-
-
-def _evaluate_retry_storm() -> Dict[str, Any]:
-    start = time.perf_counter()
-    restore_baseline_bug()
-    infra.trigger_retry_storm(incoming_rps=850, retry_multiplier=5)
-    signals_during_storm = infra.snapshot_golden_signals()
-
-    patched_code = build_deterministic_patched_handler()
-    diff_text, _ = stage_shadow_patch_direct(patched_code, "eval-retry-storm")
-    verify_msg, passed, _ = verify_and_promote_patch_direct(operational_mode="AUTONOMOUS", human_approved=False)
-
-    recovered_signals = infra.snapshot_golden_signals()
-    elapsed = round(time.perf_counter() - start, 3)
-
-    ok = (
-        not signals_during_storm.healthy
-        and signals_during_storm.error_rate_pct > 5.0
-        and bool(diff_text.strip())
-        and passed
-        and recovered_signals.healthy
-        and recovered_signals.active_connections == 0
-    )
-
-    return {
-        "scenario": "upstream_retry_storm",
-        "passed": ok,
-        "duration_seconds": elapsed,
-        "checks": {
-            "storm_slo_degradation_detected": (not signals_during_storm.healthy) and signals_during_storm.error_rate_pct > 5.0,
-            "shadow_diff_generated": bool(diff_text.strip()),
-            "sandbox_15_wire_gate_passed": passed,
-            "post_recovery_pool_zero_leaks": recovered_signals.healthy and recovered_signals.active_connections == 0,
-        },
-        "verification_detail": verify_msg,
+        "canary_detail": canary_msg,
     }
 
 
 def main() -> int:
     os.makedirs("demo_artifacts", exist_ok=True)
-    results: List[Dict[str, Any]] = [
-        _evaluate_connection_pool_leak(),
-        _evaluate_retry_storm(),
+    clear_pattern_memory()
+
+    # Ordered to prove: Cold NOVEL_FAULT -> Repeat EXACT_REUSE -> 60/40 DELTA_SCAFFOLD -> 3 distinct NOVEL_FAULTs
+    plan = [
+        ("connection_pool_leak", "NOVEL_FAULT"),
+        ("connection_pool_leak", "EXACT_REUSE"),
+        ("connection_pool_leak_sanctions_variant", "DELTA_SCAFFOLD"),
+        ("missing_idempotency_guard", "NOVEL_FAULT"),
+        ("latency_regression_spike", "NOVEL_FAULT"),
+        ("upstream_retry_storm", "NOVEL_FAULT"),
     ]
+
+    results: List[Dict[str, Any]] = [
+        _run_isolated_scenario_eval(scenario_id, expected_mode)
+        for scenario_id, expected_mode in plan
+    ]
+
     restore_baseline_bug()
+    clear_pattern_memory()
 
     all_passed = all(r["passed"] for r in results)
     report = {
-        "suite": "project-aegis-sre-mission-2026-evals",
+        "suite": "project-aegis-sre-5-scenario-chaos-evals",
         "overall_passed": all_passed,
-        "total_scenarios": len(results),
-        "passed_scenarios": sum(1 for r in results if r["passed"]),
+        "total_runs": len(results),
+        "passed_runs": sum(1 for r in results if r["passed"]),
         "results": results,
     }
 

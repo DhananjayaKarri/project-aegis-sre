@@ -15,6 +15,7 @@ from pydantic import BaseModel
 load_dotenv()
 
 import nexuspay_service.settlement_handler as settlement_handler
+from aegis_agents.chaos_scenarios import list_chaos_scenarios
 from control_plane.event_bus import event_bus
 from control_plane.watcher import watcher
 from domain.schemas import OperationalMode, SettlementReceipt, SettlementRequest
@@ -35,6 +36,10 @@ app = FastAPI(title="Project Aegis-SRE | NexusPay Gateway", lifespan=lifespan)
 
 class ModeUpdateRequest(BaseModel):
     mode: OperationalMode
+
+
+class ScenarioInjectRequest(BaseModel):
+    scenario_id: str
 
 
 # --- CUSTOMER PORTAL ENDPOINTS (NexusPay) ---
@@ -77,9 +82,24 @@ def get_metrics():
 
 
 # --- ADMIN / SRE CONTROL PLANE ENDPOINTS ---
+@app.get("/api/chaos/scenarios")
+def get_chaos_scenarios():
+    return {"scenarios": list_chaos_scenarios()}
+
+
+@app.post("/api/chaos/inject")
+async def inject_chaos(body: ScenarioInjectRequest):
+    """Injects ONE isolated failure scenario on demand and triggers Aegis-SRE remediation."""
+    RECENT_LEDGER.clear()
+    try:
+        return await watcher.inject_scenario(body.scenario_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.post("/api/chaos/surge")
 async def trigger_settlement_surge():
-    """Simulates a 12-wire concurrent high-value B2B burst that triggers the pool leak."""
+    """Legacy endpoint: simulates a 12-wire concurrent high-value B2B burst."""
 
     def _fire_burst():
         def _single_wire(i: int):
@@ -130,6 +150,11 @@ def update_operational_mode(body: ModeUpdateRequest):
 @app.post("/api/admin/approve")
 async def approve_patch():
     return await watcher.approve_pending_patch()
+
+
+@app.post("/api/admin/clear-patterns")
+async def clear_patterns():
+    return await watcher.clear_patterns()
 
 
 @app.post("/api/admin/reset")
