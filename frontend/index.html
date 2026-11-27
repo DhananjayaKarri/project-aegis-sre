@@ -251,7 +251,7 @@
             </div>
           </div>
 
-          <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/70">
+          <div class="relative flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/70">
             <div class="flex items-center gap-2">
               <span class="text-slate-300">Total tokens usage:</span>
               <span id="node-token-count" class="font-mono font-semibold text-white">0</span>
@@ -259,7 +259,18 @@
               <span class="text-slate-300">Est. Cost:</span>
               <span id="node-cost-usd" class="font-mono font-semibold text-emerald-400">$0.0000</span>
             </div>
-            <span id="pattern-badge" class="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400">PATTERN: IDLE</span>
+
+            <!-- Pattern Memory Badge with Compact 2-Line Centered Tooltip -->
+            <div class="group inline-flex items-center">
+              <span id="pattern-badge" tabindex="0" class="cursor-help inline-flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700/60">
+                <span id="pattern-badge-label">PATTERN: IDLE</span>
+                <span class="text-[10px] opacity-80" aria-hidden="true">&#9432;</span>
+              </span>
+              <div id="pattern-tooltip" role="tooltip" class="pointer-events-none opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150 absolute bottom-full left-0 right-0 mx-auto mb-2 w-fit max-w-[290px] px-3 py-2 rounded-lg bg-slate-900/95 border border-slate-700/90 shadow-xl shadow-black/70 backdrop-blur text-[11px] leading-snug text-left z-50">
+                <div id="pattern-tooltip-line1" class="font-semibold text-slate-100">3-Tier Pattern Memory</div>
+                <div id="pattern-tooltip-line2" class="text-slate-300 mt-0.5">Cold AI &rarr; 60/40 Delta &rarr; $0.0000 Exact Reuse.</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -437,23 +448,51 @@
 
     function updatePatternBadge(pm) {
       const badge = document.getElementById('pattern-badge');
-      if (!badge) return;
+      const label = document.getElementById('pattern-badge-label');
+      const line1 = document.getElementById('pattern-tooltip-line1');
+      const line2 = document.getElementById('pattern-tooltip-line2');
+      if (!badge || !label) return;
+
+      const baseClass = 'cursor-help inline-flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-0.5 rounded-full border';
+
       if (!pm || !pm.match_mode) {
-        badge.innerText = 'PATTERN: IDLE';
-        badge.className = 'text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400';
+        label.innerText = 'PATTERN: IDLE';
+        badge.className = `${baseClass} bg-slate-800 text-slate-400 border-slate-700/60`;
+        if (line1) {
+          line1.className = 'font-semibold text-slate-100';
+          line1.innerText = '3-Tier Pattern Memory';
+        }
+        if (line2) line2.innerText = 'Cold AI → 60/40 Delta → $0.0000 Exact Reuse.';
         return;
       }
+
       const mode = pm.match_mode;
       const pct = pm.similarity_pct ?? 0;
+
       if (mode === 'EXACT_REUSE') {
-        badge.innerText = `EXACT_REUSE (${pct}% · $0.0000)`;
-        badge.className = 'text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300';
+        label.innerText = `EXACT_REUSE (${pct}% · $0.0000)`;
+        badge.className = `${baseClass} bg-emerald-500/20 text-emerald-300 border-emerald-500/40`;
+        if (line1) {
+          line1.className = 'font-semibold text-emerald-300';
+          line1.innerText = `Exact Reuse (${pct}% match · 0 tok)`;
+        }
+        if (line2) line2.innerText = 'Cached fix applied behind 4-invariant sandbox gate.';
       } else if (mode === 'DELTA_SCAFFOLD') {
-        badge.innerText = `60/40 DELTA (${pct}%)`;
-        badge.className = 'text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300';
+        label.innerText = `60/40 DELTA (${pct}%)`;
+        badge.className = `${baseClass} bg-amber-500/20 text-amber-300 border-amber-500/40`;
+        if (line1) {
+          line1.className = 'font-semibold text-amber-300';
+          line1.innerText = '60% Reused (0 tok): Triage, gate & RCA';
+        }
+        if (line2) line2.innerText = '40% AI Delta: Gemini adapts only the new code fix.';
       } else {
-        badge.innerText = `NOVEL_FAULT (Cold)`;
-        badge.className = 'text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300';
+        label.innerText = 'NOVEL_FAULT (Cold)';
+        badge.className = `${baseClass} bg-sky-500/20 text-sky-300 border-sky-500/40`;
+        if (line1) {
+          line1.className = 'font-semibold text-sky-300';
+          line1.innerText = 'Novel Fault (Cold AI Run)';
+        }
+        if (line2) line2.innerText = 'Full ADK diagnosis; verified fix saved for reuse.';
       }
     }
 
