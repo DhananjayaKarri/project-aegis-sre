@@ -78,9 +78,14 @@ def build_sre_commander(model_name: str) -> SequentialAgent:
         name="TelemetrySignalAgent",
         model=lite_model,
         description="Lite agent: fetches and summarizes Golden Signals SLO breaches concisely.",
-        instruction=(
-            "Call fetch_golden_signals(). Output <=3 short bullets with breached signals, "
-            "pool saturation %, and error rate."
+       instruction=(
+            "Call fetch_golden_signals(). "
+            "Report only metrics returned by the tool. "
+            "Output up to 3 short bullets covering breached signals, "
+            "pool saturation %, and error rate. "
+            "Do not analyze root causes, propose fixes, "
+            "generate code, or report remediation outcomes. "
+            "Do not invent or estimate missing values."
         ),
         tools=[fetch_golden_signals],
         output_key="telemetry_summary",
@@ -113,6 +118,7 @@ def build_sre_commander(model_name: str) -> SequentialAgent:
     root_cause_architect = Agent(
         name="RootCauseArchitect",
         model=reasoning_model,
+        include_contents="none",
         description="Reasoning agent: diagnoses code bug and stages a safe try...finally shadow patch.",
         instruction=(
             "You are a Principal SRE & Python Architect.\n"
@@ -132,6 +138,7 @@ def build_sre_commander(model_name: str) -> SequentialAgent:
     guardrail_verifier = Agent(
         name="GuardrailVerifier",
         model=resolve_model_for_agent("GuardrailVerifier", lite_model),
+        include_contents="none",
         description="Lite gate agent: runs 15-wire sandbox verification and reports status concisely.",
         instruction=(
             "Call verify_and_promote_patch(). Return a concise 1-2 line verification summary."
@@ -153,6 +160,7 @@ def build_sre_commander(model_name: str) -> SequentialAgent:
     postmortem_writer = Agent(
         name="PostMortemWriter",
         model=resolve_model_for_agent("PostMortemWriter", reasoning_model),
+        include_contents="none",
         description="Reasoning agent: writes executive blameless post-mortem and financial safety summary.",
         instruction=(
             "Write a concise SRE Blameless Post-Mortem in Markdown from:\n"
@@ -161,6 +169,8 @@ def build_sre_commander(model_name: str) -> SequentialAgent:
             "Sections required: ## Executive Summary, ## Root Cause & Causal Chain, "
             "## Guardrail Verification & Financial Safety ($0.00 duplicate charges via X-Idempotency-Key), "
             "## Preventive Action Items."
+            "\nUse verification_status as the source of truth for deployment status."
+            "\nIf approval is pending, explicitly state that the patch is not yet deployed and the incident is not confirmed resolved."
         ),
         output_key="postmortem_markdown",
         before_agent_callback=on_child_agent_start,
