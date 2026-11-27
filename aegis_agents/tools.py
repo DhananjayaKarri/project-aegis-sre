@@ -174,7 +174,7 @@ def stage_shadow_patch(proposed_python_code: str, tool_context: ToolContext) -> 
     tool_context.state["patch_diff"] = unified_diff_text
     tool_context.state["backup_path"] = bak_path
     tool_context.state["patch_staged"] = True
-    return f"Shadow patch staged at {CANDIDATE_FILE} (backup saved at {bak_path}). Diff:\n{unified_diff_text}"
+    return f"Shadow patch staged at {CANDIDATE_FILE} (backup saved at {bak_path})."
 
 
 def verify_and_promote_patch_direct(operational_mode: str, human_approved: bool = False) -> Tuple[str, bool, bool]:
