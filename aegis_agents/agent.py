@@ -78,9 +78,14 @@ def build_sre_commander(model_name: str) -> SequentialAgent:
         name="TelemetrySignalAgent",
         model=lite_model,
         description="Lite agent: fetches and summarizes Golden Signals SLO breaches concisely.",
-        instruction=(
-            "Call fetch_golden_signals(). Output <=3 short bullets with breached signals, "
-            "pool saturation %, and error rate."
+       instruction=(
+            "Call fetch_golden_signals(). "
+            "Report only metrics returned by the tool. "
+            "Output up to 3 short bullets covering breached signals, "
+            "pool saturation %, and error rate. "
+            "Do not analyze root causes, propose fixes, "
+            "generate code, or report remediation outcomes. "
+            "Do not invent or estimate missing values."
         ),
         tools=[fetch_golden_signals],
         output_key="telemetry_summary",
